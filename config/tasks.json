@@ -1,0 +1,52 @@
+{
+  "tasks": [
+    {
+      "name": "系统信息",
+      "description": "查看操作系统、CPU、内存信息",
+      "type": "builtin",
+      "handler": "system_info"
+    },
+    {
+      "name": "磁盘分析",
+      "description": "查看各磁盘使用情况",
+      "type": "command",
+      "command": "wmic logicaldisk get caption,size,freespace /format:table"
+    },
+    {
+      "name": "清理临时文件",
+      "description": "删除 Windows 临时文件释放空间",
+      "type": "command",
+      "command": "del /f /s /q %temp%\\* >nul 2>&1 & echo 临时文件已清理"
+    },
+    {
+      "name": "网络诊断",
+      "description": "测试网络连通性 (ping 114.114.114.114)",
+      "type": "command",
+      "command": "ping 114.114.114.114 -n 4"
+    },
+    {
+      "name": "进程列表",
+      "description": "查看当前运行的进程 (按内存排序 Top 10)",
+      "type": "builtin",
+      "handler": "process_list"
+    },
+    {
+      "name": "关机定时",
+      "description": "设置定时关机 (默认 30 分钟后)",
+      "type": "command",
+      "command": "shutdown /s /t 1800"
+    },
+    {
+      "name": "取消关机",
+      "description": "取消已设置的定时关机",
+      "type": "command",
+      "command": "shutdown /a"
+    },
+    {
+      "name": "WiFi 密码查看",
+      "description": "查看当前连接的 WiFi 密码",
+      "type": "command",
+      "command": "netsh wlan show profile name=* key=clear | findstr /R \"^.*配置文件.*$ ^.*关键内容.*$\""
+    }
+  ]
+}

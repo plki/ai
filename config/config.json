@@ -1,0 +1,24 @@
+{
+    "app": {
+        "name": "智能桌面助手",
+        "version": "0.3.0",
+        "data_dir": "data"
+    },
+    "models": {
+        "download_dir": "data/models",
+        "huggingface_mirror": "https://hf-mirror.com"
+    },
+    "ai": {
+        "ollama_host": "http://127.0.0.1:11434",
+        "auto_pull_small_model": false,
+        "max_history": 20
+    },
+    "file_manager": {
+        "trash_enabled": true,
+        "auto_backup": false
+    },
+    "scheduler": {
+        "enabled": false,
+        "check_interval_seconds": 30
+    }
+}
