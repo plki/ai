@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "智能桌面助手",
-    "version": "0.6.0",
+    "version": "0.6.1",
     "data_dir": "data"
   },
   "models": {

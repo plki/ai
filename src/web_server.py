@@ -63,6 +63,8 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 .btn.danger:hover { background: #fde8e8; }
 .btn.ghost { background: transparent; border-color: transparent; }
 .btn.sm { padding: 4px 8px; font-size: 12px; }
+.btn.stop { background: #f04142; border-color: #f04142; color: #fff; }
+.btn.stop:hover { background: #d93838; }
 #newChatBtn { flex: 1; }
 #convList { flex: 1; overflow-y: auto; padding: 8px; }
 .conv-item { display: flex; align-items: center; gap: 6px; padding: 10px 10px; margin-bottom: 2px;
@@ -80,103 +82,28 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 #topbar { height: 52px; background: var(--sidebar); border-bottom: 1px solid var(--border);
           display: flex; align-items: center; padding: 0 16px; gap: 10px; flex-shrink: 0; }
-#menuBtn { display: none; }
-#title { font-size: 15px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#modelTag { color: var(--text-sub); font-size: 12px; }
+#title { font-size: 15px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+#modelTag { color: var(--text-sub); font-size: 12px; white-space: nowrap; }
 #modelSelect { background: var(--sidebar); color: var(--text); border: 1px solid var(--border);
-               padding: 6px 10px; border-radius: 8px; font-size: 13px; outline: none; max-width: 220px; }
-
-/* ========== 聊天区 ========== */
-#chat { flex: 1; overflow-y: auto; padding: 24px; }
-#chat::-webkit-scrollbar { width: 6px; }
-#chat::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-.row { max-width: 860px; margin: 0 auto 18px; display: flex; }
-.row.user { justify-content: flex-end; }
-.avatar { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center;
-          justify-content: center; font-size: 16px; flex-shrink: 0; margin-right: 10px; background: var(--sidebar-hover); }
-.row.user .avatar { margin: 0 0 0 10px; background: var(--primary); order: 2; }
-.bubble { max-width: 82%; }
-.row.user .bubble { background: var(--user-bubble); color: var(--text); padding: 10px 14px;
-                    border-radius: 12px; line-height: 1.6; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
-.row.ai .bubble, .row.system .bubble, .row.tool .bubble { background: var(--msg-bg); padding: 12px 16px;
-                    border-radius: 12px; line-height: 1.7; font-size: 14px; word-break: break-word; }
-.row.tool .bubble { border: 1px dashed var(--border); color: var(--text-sub); font-size: 13px; }
-.row.system .bubble { color: #f59e0b; }
-.thinking { display: flex; align-items: center; gap: 10px; color: var(--text-sub); font-size: 13px; }
-.spinner { width: 15px; height: 15px; border: 2px solid var(--border); border-top-color: var(--primary);
-           border-radius: 50%; animation: spin .8s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.confirm-box { background: var(--msg-bg); border: 1px solid var(--primary); border-radius: 12px;
-               padding: 12px 16px; max-width: 86%; }
-.confirm-box .plan { font-size: 13px; margin-bottom: 8px; line-height: 1.6; color: var(--text); }
-.confirm-box .btns { display: flex; gap: 8px; }
-
-/* ========== Markdown ========== */
-.md h1, .md h2, .md h3, .md h4 { margin: 14px 0 8px; line-height: 1.4; }
-.md h1 { font-size: 20px; } .md h2 { font-size: 18px; } .md h3 { font-size: 16px; }
-.md p { margin: 6px 0; }
-.md ul, .md ol { margin: 6px 0; padding-left: 22px; }
-.md li { margin: 3px 0; }
-.md code { background: rgba(127,127,127,.15); padding: 2px 5px; border-radius: 4px; font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 13px; }
-.md pre { background: var(--code-bg); border-radius: 10px; padding: 12px 14px; margin: 10px 0;
-          overflow-x: auto; position: relative; }
-.md pre code { background: none; padding: 0; color: #e6e6e6; font-size: 13px; line-height: 1.6; display: block; }
-.md pre .copy { position: absolute; top: 8px; right: 10px; background: rgba(255,255,255,.1); color: #ccc;
-                border: none; border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer; }
-.md pre .copy:hover { background: rgba(255,255,255,.2); }
-.md blockquote { border-left: 3px solid var(--border); color: var(--text-sub); padding: 4px 12px; margin: 8px 0; }
-.md table { border-collapse: collapse; margin: 10px 0; font-size: 13px; }
-.md th, .md td { border: 1px solid var(--border); padding: 6px 12px; }
-.md th { background: var(--sidebar-hover); }
-.md a { color: var(--primary); text-decoration: none; }
-.md a:hover { text-decoration: underline; }
-.md hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
-.tok-kw { color: #c586c0; } .tok-str { color: #ce9178; } .tok-com { color: #6a9955; }
-.tok-num { color: #b5cea8; } .tok-fn { color: #dcdcaa; }
-
-/* ========== 输入区 ========== */
-#inputbar { background: var(--sidebar); border-top: 1px solid var(--border); padding: 14px 24px; flex-shrink: 0; }
-#inputWrap { max-width: 860px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; }
-#input { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 11px 14px;
-         border-radius: 12px; font-size: 14px; outline: none; resize: none; min-height: 44px; max-height: 160px;
-         font-family: inherit; line-height: 1.5; }
-#input:focus { border-color: var(--primary); }
-#input::placeholder { color: var(--text-sub); }
-#sendBtn { height: 44px; padding: 0 22px; border-radius: 12px; }
-
-/* ========== 弹窗 ========== */
-.modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100;
-         align-items: center; justify-content: center; }
-.modal.open { display: flex; }
-.modal-box { background: var(--sidebar); border: 1px solid var(--border); border-radius: 14px; width: 520px;
-             max-width: 92%; padding: 22px; max-height: 90vh; overflow-y: auto; }
-.modal-box h3 { margin-bottom: 16px; }
-.field { margin-bottom: 14px; }
-.field label { display: block; font-size: 13px; color: var(--text-sub); margin-bottom: 5px; }
-.field input, .field select { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
-                              padding: 9px 11px; border-radius: 8px; font-size: 13px; outline: none; }
-.field input:focus, .field select:focus { border-color: var(--primary); }
-.field .hint { font-size: 12px; color: var(--text-sub); margin-top: 4px; line-height: 1.5; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
-
-@media (max-width: 768px) {
-  #sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 50; box-shadow: 2px 0 12px rgba(0,0,0,.15); }
-  #sidebar.hidden { margin-left: -260px; }
-  #menuBtn { display: inline-flex; }
-  #modelTag { display: none; }
-}
+               padding: 6px 10px; border-radius: 8px; font-size: 13px; outline: none; max-width: 220px; min-width: 0; }
+.btn.icon { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center;
+            justify-content: center; font-size: 16px; flex-shrink: 0; }
+#menuBtn { display: inline-flex; align-items: center; justify-content: center;
+           width: 34px; height: 34px; padding: 0; font-size: 17px; border: 1px solid var(--border);
+           background: var(--bg); color: var(--text); border-radius: 8px; cursor: pointer; flex-shrink: 0; }
+#menuBtn:hover { background: var(--sidebar-hover); }
+#settingsTopBtn { flex-shrink: 0; }
 </style>
 </head>
 <body>
 
 <!-- 侧边栏 -->
-<div id="sidebar">
+<div id="sidebar" class="hidden">
   <div class="sidebar-head">
     <button class="btn primary" id="newChatBtn">+ 新建对话</button>
   </div>
   <div id="convList"></div>
   <div class="sidebar-foot">
-    <button class="btn" onclick="openSettings()">设置</button>
     <button class="btn" onclick="toggleSidebar()">收起</button>
   </div>
 </div>
@@ -184,10 +111,11 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 <!-- 主区域 -->
 <div id="main">
   <div id="topbar">
-    <button class="btn ghost" id="menuBtn" onclick="toggleSidebar()">&#9776;</button>
+    <button class="btn icon" id="menuBtn" onclick="toggleSidebar()" title="历史会话">&#9776;</button>
     <div id="title">新对话</div>
     <span id="modelTag"></span>
     <select id="modelSelect" title="切换模型" onchange="onModelChange()"></select>
+    <button class="btn" id="settingsTopBtn" onclick="openSettings()">设置</button>
   </div>
   <div id="chat"></div>
   <div id="inputbar">
@@ -195,6 +123,7 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
       <textarea id="input" rows="1" placeholder="说出你的需求，AI 会先思考并提出计划，经你确认后再执行..."
                 onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea>
       <button class="btn primary" id="sendBtn" onclick="send()">发送</button>
+      <button class="btn stop" id="stopBtn" onclick="stopGeneration()" style="display:none">停止</button>
     </div>
   </div>
 </div>
@@ -386,7 +315,11 @@ function copyCode(btn) {
 }
 
 /* ================= 侧边栏 ================= */
-function toggleSidebar() { document.getElementById('sidebar').classList.toggle('hidden'); }
+function toggleSidebar() {
+  const sb = document.getElementById('sidebar');
+  sb.classList.toggle('hidden');
+}
+function closeSidebarIfMobile() { if (window.innerWidth <= 768) document.getElementById('sidebar').classList.add('hidden'); }
 
 function convTitle(messages) {
   const first = messages.find(m => m.role === 'user');
@@ -435,7 +368,7 @@ async function newConversation() {
     renderConvList();
     document.getElementById('chat').innerHTML = '';
     document.getElementById('title').textContent = '新对话';
-    if (window.innerWidth <= 768) toggleSidebar();
+    closeSidebarIfMobile();
   } catch (e) {}
 }
 
@@ -447,6 +380,7 @@ async function delConversation(ev, id) {
     convs = convs.filter(c => c.id !== id);
     if (state.convId === id) { state.convId = null; document.getElementById('chat').innerHTML = ''; document.getElementById('title').textContent = '新对话'; }
     renderConvList();
+    closeSidebarIfMobile();
   } catch (e) {}
 }
 
@@ -461,6 +395,7 @@ async function selectConversation(id) {
     (d.messages || []).forEach(m => renderMsg(m.role, m.content, m.tool));
     document.getElementById('title').textContent = d.title || convTitle(d.messages || []);
     document.getElementById('chat').scrollTop = document.getElementById('chat').scrollHeight;
+    closeSidebarIfMobile();
   } catch (e) {}
 }
 
@@ -526,6 +461,22 @@ async function doConfirm(approved) {
 }
 
 /* ================= 发送与流式 ================= */
+function setBusy(busy) {
+  state.busy = busy;
+  document.getElementById('sendBtn').style.display = busy ? 'none' : '';
+  document.getElementById('stopBtn').style.display = busy ? '' : 'none';
+}
+
+async function stopGeneration() {
+  const sid = state.curSid;
+  if (state.es) { state.es.close(); state.es = null; }
+  state.curSid = null;
+  if (sid) { try { await fetch('/api/stop/' + sid, { method: 'POST' }); } catch (e) {} }
+  removeThinking(); removeConfirm();
+  setBusy(false);
+  loadConversations();
+}
+
 async function send() {
   const input = document.getElementById('input');
   const text = input.value.trim();
@@ -540,8 +491,7 @@ async function send() {
   input.value = '';
   renderMsg('user', text);
   addThinking();
-  state.busy = true;
-  document.getElementById('sendBtn').disabled = true;
+  setBusy(true);
   try {
     const resp = await fetch('/api/chat', {
       method: 'POST',
@@ -552,8 +502,7 @@ async function send() {
     if (!data.ok) {
       removeThinking();
       renderMsg('system', '错误: ' + (data.error || '未知'));
-      state.busy = false;
-      document.getElementById('sendBtn').disabled = false;
+      setBusy(false);
       return;
     }
     state.curSid = data.session_id;
@@ -564,8 +513,7 @@ async function send() {
   } catch (e) {
     removeThinking();
     renderMsg('system', '请求失败: ' + e);
-    state.busy = false;
-    document.getElementById('sendBtn').disabled = false;
+    setBusy(false);
   }
 }
 
@@ -600,8 +548,7 @@ function startStream(sid) {
       if (state.es) { state.es.close(); state.es = null; }
       state.curSid = null;
       removeThinking(); removeConfirm();
-      state.busy = false;
-      document.getElementById('sendBtn').disabled = false;
+      setBusy(false);
       loadConversations();
     }
   };
@@ -690,6 +637,7 @@ class ChatSession:
         self.user_message = user_message
         self.queue = queue.Queue()
         self.confirm_event = threading.Event()
+        self.stop_flag = threading.Event()
         self.decision = None
         self.thread = None
         self.running = False
@@ -704,11 +652,22 @@ class ChatSession:
         self.decision = approved
         self.confirm_event.set()
 
+    def stop(self):
+        """请求停止本轮生成：立即中断等待、关闭底层连接"""
+        self.stop_flag.set()
+        self.confirm_event.set()
+        try:
+            self.engine.provider.close()
+        except Exception:
+            pass
+
     def _run(self, message: str):
         try:
             gen = self.engine.chat(message)
             decision = None
             while True:
+                if self.stop_flag.is_set():
+                    break
                 if decision is None:
                     chunk = next(gen)
                 else:
@@ -718,8 +677,14 @@ class ChatSession:
                     tools = [{"name": tc.get("name", ""), "args": tc.get("args", {})}
                              for tc in getattr(chunk, "tool_calls", [])]
                     self.queue.put({"type": "confirm", "plan": chunk.plan, "tools": tools})
-                    self.confirm_event.wait()
+                    # 等待确认期间也要响应停止请求
+                    while not self.confirm_event.is_set():
+                        if self.stop_flag.is_set():
+                            break
+                        self.confirm_event.wait(0.2)
                     self.confirm_event.clear()
+                    if self.stop_flag.is_set():
+                        break
                     decision = self.decision
                     self.decision = None
                 else:
@@ -943,6 +908,15 @@ def create_app() -> Flask:
         if not sess:
             return jsonify({"ok": False, "error": "会话不存在或已超时"}), 404
         sess.confirm(bool(data.get("approved", False)))
+        return jsonify({"ok": True})
+
+    @app.route("/api/stop/<sid>", methods=["POST"])
+    def api_stop(sid):
+        """停止本会话的生成"""
+        sess = _SESSIONS.get(sid)
+        if not sess:
+            return jsonify({"ok": False, "error": "会话不存在或已结束"}), 404
+        sess.stop()
         return jsonify({"ok": True})
 
     @app.route("/api/stream/<sid>")

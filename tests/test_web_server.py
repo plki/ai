@@ -239,3 +239,47 @@ def test_chat_persists_messages(client):
     assert "user" in roles
     assert "assistant" in roles
     assert conv["title"] == "帮我查系统信息"
+
+
+def test_stop_unknown_session(client):
+    resp = client.post("/api/stop/nonexistent")
+    assert resp.status_code == 404
+
+
+def test_stop_endpoint_while_running(client):
+    """生成中调用 /api/stop 后会话正常结束，不再输出新内容"""
+    from src import web_server
+
+    resp = client.post("/api/chat", json={"message": "帮我查系统信息"})
+    sid = resp.get_json()["session_id"]
+    sess = web_server._SESSIONS[sid]
+    sess.queue.get(timeout=5)  # 第一条 text
+
+    resp = client.post(f"/api/stop/{sid}")
+    assert resp.status_code == 200
+    assert resp.get_json()["ok"] is True
+
+    # 会话线程应自行结束
+    sess.thread.join(timeout=5)
+    assert sess.thread.is_alive() is False
+    assert sess.running is False
+
+
+def test_session_stop_flag(monkeypatch):
+    """stop() 设置停止标志，线程最终收到 done 事件"""
+    import src.ai_engine as ai_mod
+    from src import web_server
+    monkeypatch.setattr(ai_mod, "AIEngine", FakeAIEngine)
+
+    sess = web_server.ChatSession("s-stop", FakeAIEngine())
+    sess.start("hi")
+    sess.queue.get(timeout=5)  # text
+    sess.stop()
+
+    # 停止后剩余事件应为 done
+    while True:
+        ev = sess.queue.get(timeout=5)
+        if ev["type"] == "done":
+            break
+    sess.thread.join(timeout=5)
+    assert sess.running is False
