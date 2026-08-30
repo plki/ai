@@ -49,7 +49,6 @@ html, body { height: 100%; }
 body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
        background: var(--bg); color: var(--text); display: flex; overflow: hidden; }
 
-/* ========== 侧边栏 ========== */
 #sidebar { width: 260px; background: var(--sidebar); border-right: 1px solid var(--border);
            display: flex; flex-direction: column; flex-shrink: 0; transition: margin-left .25s; }
 #sidebar.hidden { margin-left: -260px; }
@@ -59,24 +58,18 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 .btn:hover { background: #e7e9ee; }
 .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 .btn.primary:hover { background: var(--primary-dark); }
-.btn.danger { background: transparent; border-color: transparent; color: #f04142; padding: 2px 6px; font-size: 15px; line-height: 1; }
-.btn.danger:hover { background: #fde8e8; }
-.btn.ghost { background: transparent; border-color: transparent; }
-.btn.sm { padding: 4px 8px; font-size: 12px; }
 .btn.stop { background: #f04142; border-color: #f04142; color: #fff; }
 .btn.stop:hover { background: #d93838; }
 #newChatBtn { flex: 1; }
 #convList { flex: 1; overflow-y: auto; padding: 8px; }
-.conv-item { display: flex; align-items: center; gap: 6px; padding: 10px 10px; margin-bottom: 2px;
-             border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text);
-             transition: background .12s; }
+.conv-item { display: flex; align-items: center; gap: 6px; padding: 10px; margin-bottom: 2px;
+             border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text); }
 .conv-item:hover { background: var(--sidebar-hover); }
 .conv-item.active { background: var(--sidebar-hover); }
 .conv-item .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conv-item .d { flex-shrink: 0; display: none; }
+.conv-item .d { flex-shrink: 0; display: none; color: #f04142; background: none; border: none; cursor: pointer; font-size: 14px; }
 .conv-item:hover .d { display: block; }
 
-/* ========== 主区域 ========== */
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 #topbar { height: 52px; background: var(--sidebar); border-bottom: 1px solid var(--border);
           display: flex; align-items: center; padding: 0 16px; gap: 10px; flex-shrink: 0; }
@@ -84,13 +77,76 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 #modelTag { color: var(--text-sub); font-size: 12px; white-space: nowrap; }
 #modelSelect { background: var(--sidebar); color: var(--text); border: 1px solid var(--border);
                padding: 6px 10px; border-radius: 8px; font-size: 13px; outline: none; max-width: 220px; min-width: 0; }
-.btn.icon { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center;
-            justify-content: center; font-size: 16px; flex-shrink: 0; }
 #menuBtn { display: inline-flex; align-items: center; justify-content: center;
            width: 34px; height: 34px; padding: 0; font-size: 17px; border: 1px solid var(--border);
            background: var(--bg); color: var(--text); border-radius: 8px; cursor: pointer; flex-shrink: 0; }
 #menuBtn:hover { background: var(--sidebar-hover); }
 #settingsTopBtn { flex-shrink: 0; }
+
+#chat { flex: 1; overflow-y: auto; padding: 24px; }
+#chat::-webkit-scrollbar { width: 6px; }
+#chat::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.row { max-width: 860px; margin: 0 auto 18px; display: flex; }
+.row.user { justify-content: flex-end; }
+.avatar { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center;
+          justify-content: center; font-size: 16px; flex-shrink: 0; margin-right: 10px; background: var(--sidebar-hover); }
+.row.user .avatar { margin: 0 0 0 10px; background: var(--primary); order: 2; }
+.bubble { max-width: 82%; }
+.row.user .bubble { background: var(--user-bubble); color: var(--text); padding: 10px 14px;
+                    border-radius: 12px; line-height: 1.6; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+.row.ai .bubble, .row.system .bubble { background: var(--msg-bg); padding: 12px 16px;
+                    border-radius: 12px; line-height: 1.7; font-size: 14px; word-break: break-word; }
+.row.system .bubble { color: #f59e0b; }
+.thinking { display: flex; align-items: center; gap: 10px; color: var(--text-sub); font-size: 13px; }
+.spinner { width: 15px; height: 15px; border: 2px solid var(--border); border-top-color: var(--primary);
+           border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.md h1, .md h2, .md h3, .md h4 { margin: 14px 0 8px; line-height: 1.4; }
+.md h1 { font-size: 20px; } .md h2 { font-size: 18px; } .md h3 { font-size: 16px; }
+.md p { margin: 6px 0; }
+.md ul, .md ol { margin: 6px 0; padding-left: 22px; }
+.md li { margin: 3px 0; }
+.md code { background: rgba(127,127,127,.15); padding: 2px 5px; border-radius: 4px; font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 13px; }
+.md pre { background: var(--code-bg); border-radius: 10px; padding: 12px 14px; margin: 10px 0;
+          overflow-x: auto; position: relative; }
+.md pre code { background: none; padding: 0; color: #e6e6e6; font-size: 13px; line-height: 1.6; display: block; }
+.md pre .copy { position: absolute; top: 8px; right: 10px; background: rgba(255,255,255,.1); color: #ccc;
+                border: none; border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer; }
+.md pre .copy:hover { background: rgba(255,255,255,.2); }
+.md blockquote { border-left: 3px solid var(--border); color: var(--text-sub); padding: 4px 12px; margin: 8px 0; }
+.md table { border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+.md th, .md td { border: 1px solid var(--border); padding: 6px 12px; }
+.md th { background: var(--sidebar-hover); }
+.md a { color: var(--primary); text-decoration: none; }
+.md a:hover { text-decoration: underline; }
+.md hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+.tok-kw { color: #c586c0; } .tok-str { color: #ce9178; } .tok-com { color: #6a9955; }
+.tok-num { color: #b5cea8; } .tok-fn { color: #dcdcaa; }
+
+#inputbar { background: var(--sidebar); border-top: 1px solid var(--border); padding: 14px 24px; flex-shrink: 0; }
+#inputWrap { max-width: 860px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; }
+#input { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 11px 14px;
+         border-radius: 12px; font-size: 14px; outline: none; resize: none; min-height: 44px; max-height: 160px;
+         font-family: inherit; line-height: 1.5; }
+#input:focus { border-color: var(--primary); }
+#input::placeholder { color: var(--text-sub); }
+#sendBtn { height: 44px; padding: 0 22px; border-radius: 12px; }
+#stopBtn { height: 44px; padding: 0 22px; border-radius: 12px; display: none; }
+
+.modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100;
+         align-items: center; justify-content: center; }
+.modal.open { display: flex; }
+.modal-box { background: var(--sidebar); border: 1px solid var(--border); border-radius: 14px; width: 520px;
+             max-width: 92%; padding: 22px; max-height: 90vh; overflow-y: auto; }
+.modal-box h3 { margin-bottom: 16px; }
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 13px; color: var(--text-sub); margin-bottom: 5px; }
+.field input, .field select { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+                              padding: 9px 11px; border-radius: 8px; font-size: 13px; outline: none; }
+.field input:focus, .field select:focus { border-color: var(--primary); }
+.field .hint { font-size: 12px; color: var(--text-sub); margin-top: 4px; line-height: 1.5; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
 @media (max-width: 768px) {
   #sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 50; width: 85vw; max-width: 300px;
@@ -108,6 +164,20 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
   .avatar { width: 30px; height: 30px; font-size: 14px; }
   #settingsTopBtn { font-size: 12px; padding: 6px 9px; }
 }
+
+/* ========== 桌面版扩展样式 ========== */
+.btn.danger { background: transparent; border-color: transparent; color: #f04142; padding: 2px 6px; font-size: 15px; line-height: 1; }
+.btn.danger:hover { background: #fde8e8; }
+.btn.ghost { background: transparent; border-color: transparent; }
+.btn.sm { padding: 4px 8px; font-size: 12px; }
+.btn.icon { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center;
+            justify-content: center; font-size: 16px; flex-shrink: 0; }
+.row.tool .bubble { background: var(--msg-bg); padding: 12px 16px; border-radius: 12px;
+                    line-height: 1.7; font-size: 14px; word-break: break-word; }
+.confirm-box { max-width: 82%; background: var(--msg-bg); padding: 14px 16px; border-radius: 12px;
+               line-height: 1.7; font-size: 14px; word-break: break-word; }
+.confirm-box .plan { margin-bottom: 12px; }
+.confirm-box .btns { display: flex; gap: 8px; }
 </style>
 </head>
 <body>
