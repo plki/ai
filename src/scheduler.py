@@ -1,40 +1,41 @@
 """
 调度器模块 - 定时任务管理
 """
-import json
+import subprocess
 import threading
 import time
-import subprocess
-from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
+
 from colorama import Fore, Style
+
+from .utils import PROJECT_ROOT, get_logger, load_json, save_json
+
+logger = get_logger("scheduler")
 
 
 class Scheduler:
     def __init__(self):
-        self.schedule_file = Path(__file__).parent.parent / "config" / "schedule.json"
+        self.schedule_file = PROJECT_ROOT / "config" / "schedule.json"
         self.tasks = self._load_tasks()
         self._running = False
         self._thread = None
 
     def _load_tasks(self):
-        if self.schedule_file.exists():
-            try:
-                return json.load(open(self.schedule_file, 'r', encoding='utf-8'))
-            except:
-                pass
-        default = {"tasks": []}
-        self._save(default)
-        return default
+        data = load_json(self.schedule_file, None)
+        if data is None:
+            data = {"tasks": []}
+            save_json(self.schedule_file, data)
+        if not isinstance(data.get("tasks"), list):
+            data["tasks"] = []
+        return data
 
     def _save(self, data=None):
-        with open(self.schedule_file, 'w', encoding='utf-8') as f:
-            json.dump(data or self.tasks, f, ensure_ascii=False, indent=2)
+        save_json(self.schedule_file, data or self.tasks)
 
     def add_task(self, name: str, task_type: str, config: dict, cron: str):
         """添加定时任务"""
         task = {
-            "id": len(self.tasks["tasks"]) + 1,
+            "id": self._next_id(),
             "name": name,
             "type": task_type,
             "config": config,
@@ -46,6 +47,10 @@ class Scheduler:
         self.tasks["tasks"].append(task)
         self._save()
         print(f"{Fore.GREEN}[OK] 定时任务已添加: {name} ({cron}){Style.RESET_ALL}")
+
+    def _next_id(self) -> int:
+        ids = [t.get("id", 0) for t in self.tasks.get("tasks", [])]
+        return max(ids, default=0) + 1
 
     def list_tasks(self):
         """列出定时任务"""
@@ -82,7 +87,7 @@ class Scheduler:
             return
 
         self._running = True
-        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread = threading.Thread(target=self._run_loop, daemon=True, name="scheduler")
         self._thread.start()
         print(f"{Fore.GREEN}[OK] 调度器已启动 (后台运行){Style.RESET_ALL}")
 
@@ -101,31 +106,37 @@ class Scheduler:
 
                 last_run = task.get("last_run")
                 if last_run:
-                    last_dt = datetime.fromisoformat(last_run)
+                    try:
+                        last_dt = datetime.fromisoformat(last_run)
+                    except ValueError:
+                        last_dt = None
                 else:
                     last_dt = None
 
-                # 解析 cron 表达式（简化版：仅支持间隔分钟/小时/天）
                 cron = task.get("cron", "")
-                should_run = False
-
-                if cron.endswith("m"):
-                    minutes = int(cron[:-1])
-                    if not last_dt or (now - last_dt).total_seconds() >= minutes * 60:
-                        should_run = True
-                elif cron.endswith("h"):
-                    hours = int(cron[:-1])
-                    if not last_dt or (now - last_dt).total_seconds() >= hours * 3600:
-                        should_run = True
-                elif cron.endswith("d"):
-                    days = int(cron[:-1])
-                    if not last_dt or (now - last_dt).days >= days:
-                        should_run = True
-
-                if should_run:
+                if self._should_run(cron, last_dt, now):
                     self._execute_task(task)
 
             time.sleep(30)  # 每 30 秒检查一次
+
+    @staticmethod
+    def _should_run(cron: str, last_dt, now: datetime) -> bool:
+        """解析简化版 cron 表达式（支持 m/h/d 间隔）"""
+        if not cron:
+            return False
+        try:
+            if cron.endswith("m"):
+                minutes = int(cron[:-1])
+                return not last_dt or (now - last_dt).total_seconds() >= minutes * 60
+            if cron.endswith("h"):
+                hours = int(cron[:-1])
+                return not last_dt or (now - last_dt).total_seconds() >= hours * 3600
+            if cron.endswith("d"):
+                days = int(cron[:-1])
+                return not last_dt or (now - last_dt).days >= days
+        except ValueError:
+            return False
+        return False
 
     def _execute_task(self, task: dict):
         """执行单个定时任务"""
@@ -143,19 +154,18 @@ class Scheduler:
             elif task_type == "command":
                 result = subprocess.run(
                     config.get("command", ""),
-                    shell=True, capture_output=True, text=True, timeout=60
+                    shell=True, capture_output=True, text=True, timeout=60,
                 )
                 print(f"  命令执行完成 (code={result.returncode})")
 
             elif task_type == "cleanup":
-                # 清理临时文件
-                subprocess.run("del /f /s /q %temp%\\* >nul 2>&1", shell=True)
-                subprocess.run("del /f /s /q C:\\Windows\\Temp\\* >nul 2>&1", shell=True)
-                print(f"  [OK] 临时文件已清理")
+                from .task_automation import TaskAutomation
+                TaskAutomation().run_task("清理临时文件")
 
             # 更新最后运行时间
             task["last_run"] = str(datetime.now())
             self._save()
 
         except Exception as e:
+            logger.exception("定时任务执行失败")
             print(f"{Fore.RED}  [X] 任务执行失败: {e}{Style.RESET_ALL}")

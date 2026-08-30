@@ -2,38 +2,39 @@
 备份管理模块 - 目录备份与恢复
 """
 import os
-import shutil
-import json
 import zipfile
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
 from colorama import Fore, Style
 from tqdm import tqdm
+
+from .utils import DATA_PATH, format_size, get_logger, load_json, save_json
+
+logger = get_logger("backup")
 
 
 class BackupManager:
     def __init__(self):
-        self.backup_root = Path(__file__).parent.parent / "data" / "backups"
+        self.backup_root = DATA_PATH / "backups"
         self.backup_root.mkdir(parents=True, exist_ok=True)
         self.index_file = self.backup_root / "backup_index.json"
         self.index = self._load_index()
 
     def _load_index(self):
-        if self.index_file.exists():
-            try:
-                return json.load(open(self.index_file, 'r', encoding='utf-8'))
-            except:
-                pass
-        index = {"backups": []}
-        self._save_index(index)
-        return index
+        data = load_json(self.index_file, None)
+        if data is None:
+            data = {"backups": []}
+            save_json(self.index_file, data)
+        if not isinstance(data.get("backups"), list):
+            data["backups"] = []
+        return data
 
     def _save_index(self, index=None):
-        with open(self.index_file, 'w', encoding='utf-8') as f:
-            json.dump(index or self.index, f, ensure_ascii=False, indent=2)
+        save_json(self.index_file, index or self.index)
 
     def backup_directory(self, source_path: str, name: str = None) -> bool:
-        """备份指定目录"""
+        """备份指定目录（流式遍历，避免全量载入内存）"""
         source = Path(source_path).resolve()
         if not source.exists():
             print(f"{Fore.RED}[X] 路径不存在: {source}{Style.RESET_ALL}")
@@ -48,54 +49,55 @@ class BackupManager:
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_name = f"{name}_{timestamp}"
-        backup_dir = self.backup_root / backup_name
-        backup_dir.mkdir(parents=True, exist_ok=True)
+        zip_path = self.backup_root / f"{backup_name}.zip"
 
         print(f"\n{Fore.CYAN}📦 备份: {source}{Style.RESET_ALL}")
-        print(f"{Fore.WHITE}   目标: {backup_dir}{Style.RESET_ALL}")
+        print(f"{Fore.WHITE}   目标: {zip_path}{Style.RESET_ALL}")
         print(f"{Fore.WHITE}{'='*60}{Style.RESET_ALL}")
 
-        # 先压缩备份
-        zip_path = str(backup_dir) + ".zip"
-        total_size = sum(f.stat().st_size for f in source.rglob('*') if f.is_file())
-
+        file_count = 0
         try:
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                files = list(source.rglob('*'))
-                with tqdm(total=len(files), desc="备份中", unit="个") as pbar:
-                    for f in files:
-                        if f.is_file():
+                pbar = tqdm(desc="备份中", unit="个")
+                # 生成器流式遍历：逐文件处理，不把全部路径载入内存
+                for f in source.rglob('*'):
+                    pbar.update(1)
+                    if f.is_file():
+                        try:
                             arcname = str(f.relative_to(source.parent))
                             zf.write(f, arcname)
-                        pbar.update(1)
+                            file_count += 1
+                        except OSError:
+                            continue
+                pbar.close()
 
             backup_info = {
                 "name": name,
                 "source": str(source),
-                "backup_path": zip_path,
+                "backup_path": str(zip_path),
                 "timestamp": timestamp,
                 "size": os.path.getsize(zip_path),
-                "files_count": len(files),
+                "files_count": file_count,
             }
 
             self.index["backups"].append(backup_info)
             self._save_index()
 
-            size_str = self._format_size(backup_info["size"])
+            size_str = format_size(backup_info["size"])
             print(f"\n{Fore.GREEN}[OK] 备份完成！{Style.RESET_ALL}")
             print(f"{Fore.CYAN}   文件: {zip_path}{Style.RESET_ALL}")
             print(f"{Fore.CYAN}   大小: {size_str}{Style.RESET_ALL}")
-            print(f"{Fore.CYAN}   数量: {len(files)} 个文件{Style.RESET_ALL}")
-
-            # 删除临时目录
-            shutil.rmtree(backup_dir, ignore_errors=True)
+            print(f"{Fore.CYAN}   数量: {file_count} 个文件{Style.RESET_ALL}")
             return True
 
         except Exception as e:
+            logger.exception("备份失败")
             print(f"{Fore.RED}[X] 备份失败: {e}{Style.RESET_ALL}")
-            shutil.rmtree(backup_dir, ignore_errors=True)
-            if os.path.exists(zip_path):
-                os.remove(zip_path)
+            if zip_path.exists():
+                try:
+                    zip_path.unlink()
+                except OSError:
+                    pass
             return False
 
     def list_backups(self):
@@ -110,7 +112,7 @@ class BackupManager:
 
         for i, b in enumerate(reversed(backups), 1):
             ts = b.get("timestamp", "")
-            size = self._format_size(b.get("size", 0))
+            size = format_size(b.get("size", 0))
             name = b.get("name", "未知")
             source = b.get("source", "")
             print(f"  {Fore.GREEN}{i}. {name}{Style.RESET_ALL}")
@@ -118,20 +120,20 @@ class BackupManager:
             print(f"     {Fore.CYAN}📂 {source}{Style.RESET_ALL}")
 
     def restore(self, index: int, dest: str = None):
-        """恢复备份"""
+        """恢复备份（带 zip 路径穿越防护）"""
         backups = self.index.get("backups", [])
         if not backups or index < 1 or index > len(backups):
             print(f"{Fore.RED}[X] 无效的备份编号{Style.RESET_ALL}")
             return
 
         b = backups[index - 1]
-        zip_path = b.get("backup_path", "")
+        zip_path = Path(b.get("backup_path", ""))
 
-        if not os.path.exists(zip_path):
+        if not zip_path.exists():
             print(f"{Fore.RED}[X] 备份文件不存在: {zip_path}{Style.RESET_ALL}")
             return
 
-        dest_path = Path(dest) if dest else Path(b.get("source", "."))
+        dest_path = Path(dest).resolve() if dest else Path(b.get("source", ".")).resolve()
         dest_path.mkdir(parents=True, exist_ok=True)
 
         print(f"\n{Fore.CYAN}🔄 恢复备份: {b['name']}{Style.RESET_ALL}")
@@ -140,9 +142,16 @@ class BackupManager:
 
         try:
             with zipfile.ZipFile(zip_path, 'r') as zf:
+                for member in zf.infolist():
+                    # 防路径穿越：规范化后必须落在目标目录内
+                    target = (dest_path / member.filename).resolve()
+                    if not str(target).startswith(str(dest_path)):
+                        print(f"{Fore.YELLOW}  [跳过] 越界路径: {member.filename}{Style.RESET_ALL}")
+                        continue
                 zf.extractall(dest_path)
             print(f"{Fore.GREEN}[OK] 恢复完成！{Style.RESET_ALL}")
         except Exception as e:
+            logger.exception("恢复失败")
             print(f"{Fore.RED}[X] 恢复失败: {e}{Style.RESET_ALL}")
 
     def auto_backup(self, path: str = None, interval_hours: int = 24):
@@ -154,14 +163,6 @@ class BackupManager:
             "source": path,
             "interval_hours": interval_hours,
         }
-        config_path = Path(__file__).parent.parent / "config" / "auto_backup.json"
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
+        config_path = DATA_PATH / "auto_backup.json"
+        save_json(config_path, config)
         print(f"{Fore.GREEN}[OK] 自动备份已配置: 每 {interval_hours} 小时备份 {path}{Style.RESET_ALL}")
-
-    def _format_size(self, size: int) -> str:
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if size < 1024:
-                return f"{size:.1f} {unit}"
-            size /= 1024
-        return f"{size:.1f} PB"

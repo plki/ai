@@ -2,14 +2,16 @@
 CLI 交互界面 - 智能桌面助手的命令行入口
 集成 AI 对话、文件管理、Web 自动化、任务调度、备份
 """
-import sys
-import json
 import os
+import sys
 from pathlib import Path
-from datetime import datetime
-from colorama import init, Fore, Style
-from rich.console import Console
+
+from colorama import Fore, Style, init
 from rich import box
+from rich.console import Console
+
+from . import ui
+from .utils import PROJECT_ROOT, load_json
 
 # UTF-8 编码
 if sys.stdout.encoding and sys.stdout.encoding.upper() != 'UTF-8':
@@ -20,16 +22,13 @@ if sys.stdout.encoding and sys.stdout.encoding.upper() != 'UTF-8':
 
 init(autoreset=True)
 
-from . import ui
-
 console = Console()
 
-CONFIG_PATH = Path(__file__).parent.parent / "config" / "config.json"
+CONFIG_PATH = PROJECT_ROOT / "config" / "config.json"
 
 
 def load_config():
-    with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    return load_json(CONFIG_PATH, {})
 
 
 def print_banner():
@@ -50,7 +49,7 @@ def print_banner():
                 ui_mod.print_warning("Ollama 已连接但无模型")
         else:
             ui_mod.print_error("Ollama 连接异常")
-    except:
+    except Exception:
         ui_mod.print_warning("Ollama 未运行 (AI 功能不可用)")
 
     console.print()
@@ -84,7 +83,7 @@ def print_help():
             ("model pull <名称>", "从 Ollama 拉取 AI 模型"),
         ]),
         ("[task] 任务自动化", [
-            ("task list", "查看可用任务（8个内置任务）"),
+            ("task list", "查看可用任务"),
             ("task run <名称/编号>", "运行任务"),
             ("task add <名> <描述> <命令>", "添加自定义任务"),
         ]),
@@ -105,10 +104,13 @@ def print_help():
     ui.print_help_rich(sections)
 
 
+def _clear_screen():
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+
 def run_cli():
     """CLI 主循环"""
-    import sys
-    config = load_config()
+    load_config()
     print_banner()
 
     while True:
@@ -129,7 +131,7 @@ def run_cli():
                 print_help()
 
             elif action == "clear":
-                os.system('cls' if os.name == 'nt' else 'clear')
+                _clear_screen()
                 print_banner()
 
             elif action == "chat":
@@ -214,7 +216,6 @@ def handle_chat_command(args):
             return
 
         # 进入聊天模式前刷新缓冲区
-        import sys
         sys.stdout.flush()
 
         from rich.panel import Panel
@@ -224,7 +225,7 @@ def handle_chat_command(args):
             f"[yellow]输入 /exit 退出  |  /clear 清空历史  |  /help 查看提示[/yellow]",
             box=box.HEAVY,
             border_style="cyan",
-            padding=(1, 2)
+            padding=(1, 2),
         )
         console.print(chat_panel)
 
@@ -409,7 +410,10 @@ def handle_schedule_command(args):
         if len(args) < 2:
             print(f"{Fore.RED}请指定任务 ID{Style.RESET_ALL}")
             return
-        s.remove_task(int(args[1]))
+        try:
+            s.remove_task(int(args[1]))
+        except ValueError:
+            print(f"{Fore.RED}无效的任务 ID: {args[1]}{Style.RESET_ALL}")
     elif sub == "start":
         s.start()
     elif sub == "stop":
@@ -420,7 +424,13 @@ def handle_schedule_command(args):
 
 def handle_natural_language(text: str) -> bool:
     """自然语言理解（关键词匹配 + AI 兜底）"""
-    text_lower = text.lower()
+    from .backup_manager import BackupManager
+    from .file_manager import FileManager
+    from .model_manager import ModelManager
+    from .task_automation import TaskAutomation
+    from .web_automation import WebAutomation
+
+    home = Path.home()
 
     # 问候
     if any(kw in text for kw in ["你好", "嗨", "hi", "hello", "在吗"]):
@@ -431,13 +441,11 @@ def handle_natural_language(text: str) -> bool:
 
     # 文件操作
     if any(kw in text for kw in ["列出文件", "目录", "文件夹", "有什么文件"]):
-        from .file_manager import FileManager
         path = text.split()[-1] if any(c in text for c in ":\\/") else "."
         FileManager().list_files(path)
         return True
 
     if any(kw in text for kw in ["搜索文件", "查找文件", "找文件"]):
-        from .file_manager import FileManager
         keyword = text.replace("搜索文件", "").replace("查找文件", "").replace("找文件", "").strip()
         if keyword:
             FileManager().find_files(keyword)
@@ -446,30 +454,26 @@ def handle_natural_language(text: str) -> bool:
         return True
 
     if "整理" in text and ("文件" in text or "桌面" in text or "目录" in text):
-        from .file_manager import FileManager
-        # 找路径
         parts = text.split()
         path = None
         for i, p in enumerate(parts):
             if p in ["桌面", "下载", "文档"]:
                 if p == "桌面":
-                    path = str(Path.home() / "Desktop")
+                    path = str(home / "Desktop")
                 elif p == "下载":
-                    path = str(Path.home() / "Downloads")
+                    path = str(home / "Downloads")
                 elif p == "文档":
-                    path = str(Path.home() / "Documents")
+                    path = str(home / "Documents")
                 break
         FileManager().sort_files_by_type(path or ".")
         return True
 
     # Web 操作
     if text.startswith("http://") or text.startswith("https://"):
-        from .web_automation import WebAutomation
         WebAutomation().fetch_page(text)
         return True
 
     if any(kw in text for kw in ["搜索", "查一下", "搜一下"]):
-        from .web_automation import WebAutomation
         keyword = text.replace("搜索", "").replace("查一下", "").replace("搜一下", "").strip()
         if keyword:
             WebAutomation().search(keyword)
@@ -478,68 +482,52 @@ def handle_natural_language(text: str) -> bool:
         return True
 
     if "下载" in text and any(w.startswith("http") for w in text.split()):
-        from .web_automation import WebAutomation
         url = [w for w in text.split() if w.startswith("http")][0]
         WebAutomation().download_file(url)
         return True
 
     # 系统操作
     if any(kw in text for kw in ["系统信息", "电脑配置", "本机信息", "配置"]):
-        from .task_automation import TaskAutomation
-        ta = TaskAutomation()
-        ta.run_task("系统信息")
+        TaskAutomation().run_task("系统信息")
         return True
 
     if any(kw in text for kw in ["清理垃圾", "清理", "加速"]):
-        from .task_automation import TaskAutomation
-        ta = TaskAutomation()
-        ta.run_task("清理临时文件")
+        TaskAutomation().run_task("清理临时文件")
         return True
 
     if any(kw in text for kw in ["磁盘", "硬盘", "空间"]):
-        from .task_automation import TaskAutomation
-        ta = TaskAutomation()
-        ta.run_task("磁盘分析")
+        TaskAutomation().run_task("磁盘分析")
         return True
 
     if "网络" in text and ("诊断" in text or "测" in text or "检查" in text):
-        from .task_automation import TaskAutomation
-        ta = TaskAutomation()
-        ta.run_task("网络诊断")
+        TaskAutomation().run_task("网络诊断")
         return True
 
     if any(kw in text for kw in ["进程", "任务管理器", "运行的程序"]):
-        from .task_automation import TaskAutomation
-        ta = TaskAutomation()
-        ta.run_task("进程列表")
+        TaskAutomation().run_task("进程列表")
         return True
 
     # 模型操作
     if any(kw in text for kw in ["下载模型", "模型下载", "安装模型"]):
-        from .model_manager import ModelManager
         ModelManager().search_models()
         return True
 
     if any(kw in text for kw in ["模型列表", "已下载的模型", "我的模型"]):
-        from .model_manager import ModelManager
         ModelManager().list_models()
         return True
 
     # 备份
     if "备份" in text:
-        from .backup_manager import BackupManager
         bm = BackupManager()
-        # 找路径
         parts = text.split()
         for i, p in enumerate(parts):
             if p in ["桌面", "下载", "文档"]:
-                from pathlib import Path
                 if p == "桌面":
-                    bm.backup_directory(str(Path.home() / "Desktop"))
+                    bm.backup_directory(str(home / "Desktop"))
                 elif p == "下载":
-                    bm.backup_directory(str(Path.home() / "Downloads"))
+                    bm.backup_directory(str(home / "Downloads"))
                 elif p == "文档":
-                    bm.backup_directory(str(Path.home() / "Documents"))
+                    bm.backup_directory(str(home / "Documents"))
                 return True
         bm.list_backups()
         return True

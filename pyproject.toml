@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-desktop-assistant"
+version = "0.4.0"
+description = "AI Desktop Assistant - 智能桌面助手，支持本地模型对话、文件管理、任务自动化与备份"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "AI Desktop Assistant Contributors" }]
+keywords = ["ai", "chat", "automation", "ollama", "desktop"]
+
+dependencies = [
+    "colorama>=0.4.6",
+    "requests>=2.28.0",
+    "beautifulsoup4>=4.12.0",
+    "tqdm>=4.64.0",
+    "rich>=13.0.0",
+    "psutil>=5.9.0",
+    "schedule>=1.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.4.0",
+]
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]

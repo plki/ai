@@ -3,22 +3,29 @@ Web 自动化模块 - 网页抓取、应用部署
 """
 import os
 import re
-import requests
 import subprocess
-import tempfile
-from pathlib import Path
 from urllib.parse import urlparse
-from colorama import Fore, Style
+
+import requests
 from bs4 import BeautifulSoup
+from colorama import Fore, Style
 from tqdm import tqdm
+
+from .utils import DATA_PATH, MAX_TEXT_SIZE, format_size, get_logger
+
+logger = get_logger("web")
+
+# 单次下载大小上限保护：超过该值拒绝（MB）
+MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024
+
 
 class WebAutomation:
     def __init__(self):
-        self.download_dir = Path(__file__).parent.parent / "data" / "downloads"
+        self.download_dir = DATA_PATH / "downloads"
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
     def fetch_page(self, url: str):
-        """获取网页内容"""
+        """获取网页内容（限制读取大小，防止内存暴涨）"""
         print(f"\n{Fore.CYAN}🌐 正在访问: {url}{Style.RESET_ALL}")
         print(f"{Fore.WHITE}{'='*60}{Style.RESET_ALL}")
 
@@ -26,20 +33,35 @@ class WebAutomation:
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             }
-            resp = requests.get(url, headers=headers, timeout=15)
+            resp = requests.get(url, headers=headers, timeout=15, stream=True)
             resp.raise_for_status()
+
+            # 流式读取并限制大小
+            chunks = []
+            size = 0
+            for chunk in resp.iter_content(chunk_size=64 * 1024, decode_unicode=True):
+                if not chunk:
+                    continue
+                size += len(chunk)
+                if size > MAX_TEXT_SIZE:
+                    logger.warning("网页内容超过 %d 字节，已截断", MAX_TEXT_SIZE)
+                    break
+                chunks.append(chunk)
+            resp.close()
+
+            text = "".join(chunks)
             resp.encoding = resp.apparent_encoding or 'utf-8'
 
-            soup = BeautifulSoup(resp.text, 'html.parser')
+            soup = BeautifulSoup(text, 'html.parser')
 
             # 提取页面信息
             title = soup.title.string.strip() if soup.title else "无标题"
             print(f"{Fore.GREEN}📄 标题: {title}{Style.RESET_ALL}")
-            print(f"{Fore.WHITE}📏 大小: {len(resp.text):,} 字符{Style.RESET_ALL}")
+            print(f"{Fore.WHITE}📏 大小: {len(text):,} 字符{Style.RESET_ALL}")
 
             # 提取链接
             links = soup.find_all('a', href=True)
-            valid_links = [l for l in links if l['href'].strip() and not l['href'].startswith('#')]
+            valid_links = [link for link in links if link['href'].strip() and not link['href'].startswith('#')]
             print(f"{Fore.WHITE}🔗 链接数: {len(valid_links)}{Style.RESET_ALL}")
 
             # 提取下载链接
@@ -52,7 +74,7 @@ class WebAutomation:
 
             return {
                 "title": title,
-                "content": resp.text,
+                "content": text,
                 "links": valid_links[:20],
                 "downloads": downloads,
             }
@@ -62,7 +84,7 @@ class WebAutomation:
             return None
 
     def download_file(self, url: str, filename: str = None):
-        """从 URL 下载文件"""
+        """从 URL 下载文件（含大小上限保护）"""
         if not filename:
             # 从 URL 提取文件名
             parsed = urlparse(url)
@@ -80,6 +102,11 @@ class WebAutomation:
             resp.raise_for_status()
 
             total_size = int(resp.headers.get('content-length', 0))
+            if total_size > MAX_DOWNLOAD_BYTES:
+                print(f"{Fore.RED}[X] 文件过大 ({format_size(total_size)}),超过保护上限 {format_size(MAX_DOWNLOAD_BYTES)}{Style.RESET_ALL}")
+                resp.close()
+                return None
+
             block_size = 1024 * 1024
 
             with open(dest, 'wb') as f:
@@ -98,11 +125,14 @@ class WebAutomation:
             size = dest.stat().st_size
             print(f"\n{Fore.GREEN}[OK] 下载完成！{Style.RESET_ALL}")
             print(f"{Fore.CYAN}   路径: {dest}{Style.RESET_ALL}")
-            print(f"{Fore.CYAN}   大小: {self._format_size(size)}{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}   大小: {format_size(size)}{Style.RESET_ALL}")
             return str(dest)
 
         except requests.exceptions.RequestException as e:
             print(f"{Fore.RED}[X] 下载失败: {e}{Style.RESET_ALL}")
+            return None
+        except OSError as e:
+            print(f"{Fore.RED}[X] 写入失败: {e}{Style.RESET_ALL}")
             return None
 
     def deploy_from_url(self, url: str):
@@ -151,7 +181,7 @@ class WebAutomation:
 
             # 检查是否是下载链接
             is_download = any(kw in href.lower() or kw in text.lower()
-                            for kw in download_keywords)
+                              for kw in download_keywords)
             if is_download:
                 downloads.append({
                     'name': text or os.path.basename(href),
@@ -179,7 +209,7 @@ class WebAutomation:
             package_name = url.rstrip('/').split('/')[-1]
             result = subprocess.run(
                 f"pip install {package_name} -q",
-                shell=True, capture_output=True, text=True, timeout=120
+                shell=True, capture_output=True, text=True, timeout=120,
             )
             if result.returncode == 0:
                 print(f"{Fore.GREEN}[OK] 安装成功: {package_name}{Style.RESET_ALL}")
@@ -210,7 +240,7 @@ class WebAutomation:
         print(f"  正在克隆: {url}")
         result = subprocess.run(
             ["git", "clone", "--depth", "1", url, str(dest)],
-            capture_output=True, text=True, timeout=120
+            capture_output=True, text=True, timeout=120,
         )
         if result.returncode == 0:
             print(f"{Fore.GREEN}[OK] 克隆成功: {dest}{Style.RESET_ALL}")
@@ -222,8 +252,6 @@ class WebAutomation:
         path = self.download_file(url)
         if path:
             print(f"\n{Fore.YELLOW}💡 文件已下载到: {path}{Style.RESET_ALL}")
-            print(f"{Fore.YELLOW}💡 是否现在运行安装程序? (y/n){Style.RESET_ALL}")
-            # 这个交互留给用户手动操作
 
     def search(self, keyword: str, max_results: int = 5):
         """简易网页搜索（使用 DuckDuckGo 或直接抓取）"""
@@ -263,10 +291,3 @@ class WebAutomation:
 
         except requests.exceptions.RequestException as e:
             print(f"{Fore.RED}[X] 搜索失败: {e}{Style.RESET_ALL}")
-
-    def _format_size(self, size: int) -> str:
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if size < 1024:
-                return f"{size:.1f} {unit}"
-            size /= 1024
-        return f"{size:.1f} PB"

@@ -2,32 +2,36 @@
 UI 美化模块 - 使用 rich 库提供更漂亮的终端界面
 （兼容 GBK 终端，无生僻 Unicode 符号）
 """
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
 from rich import box
-from rich.text import Text
 from rich.align import Align
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+from .utils import CONFIG_PATH, load_json
 
 # 全局控制台实例
 console = Console()
+
+VERSION = load_json(CONFIG_PATH / "config.json", {}).get("app", {}).get("version", "0.4.0")
 
 
 def print_banner_rich():
     """打印美化的启动界面（居中）"""
     content = Text()
     content.append("智能桌面助手", style="bold yellow")
-    content.append(" v0.3.0", style="dim white")
+    content.append(f" v{VERSION}", style="dim white")
     content.append("\n")
     content.append("AI Desktop Assistant", style="cyan")
-    
+
     panel = Panel(
         Align.center(content),
         box=box.DOUBLE,
         border_style="cyan",
         padding=(1, 2),
         title="[bold yellow][AI][/bold yellow]",
-        title_align="center"
+        title_align="center",
     )
     console.print()
     console.print(panel)
@@ -40,7 +44,7 @@ def print_help_rich(sections):
         border_style="cyan",
         title="[bold yellow]命令大全[/bold yellow]",
         title_justify="center",
-        padding=(0, 1)
+        padding=(0, 1),
     )
     main_table.add_column("分类", style="bold green", width=12)
     main_table.add_column("命令", style="yellow", width=28)
@@ -56,13 +60,13 @@ def print_help_rich(sections):
     console.print()
     console.print(main_table)
     console.print()
-    
+
     tip = Panel(
         "[bold yellow][i][/bold yellow] 也可以直接输入自然语言，AI 会自动理解你的意图\n"
         "[bold yellow][i][/bold yellow] 在聊天模式下直接说话即可，助手会自动调用工具",
         box=box.SIMPLE,
         border_style="bright_black",
-        padding=(1, 2)
+        padding=(1, 2),
     )
     console.print(tip)
 

@@ -1,16 +1,28 @@
 """
 AI 引擎 - 集成本地 Ollama 模型
-优化版：generate API 为主（更快）、qwen 中文模型优先
+
+现代化版本：
+- 使用 Ollama 原生 function calling（/api/chat + tools），替代脆弱的文本标签解析
+- 保留关键词快路径，降低模型幻觉与延迟
+- 对话历史按 max_history 裁剪，防止内存无限增长
 """
 import json
-import time
-import requests
+import os
+import re
 import subprocess
-import atexit
-from typing import Generator, Optional
+from collections.abc import Generator
+from pathlib import Path
+from typing import Optional
+
+import requests
 from colorama import Fore, Style
 
+from .utils import CONFIG_PATH, get_logger, load_json
+
+logger = get_logger("ai")
+
 OLLAMA_HOST = "http://127.0.0.1:11434"
+MAX_TOOL_TURNS = 5  # 单轮对话最多执行的工具调用次数，防止死循环
 
 # 全局 session 清理注册表
 _ai_instances = []
@@ -23,16 +35,9 @@ def _register_session(instance):
     _ai_instances.append(instance)
 
 
-def _cleanup_all_sessions():
-    """清理所有资源：HTTP 连接 + 子进程 + 通知 Ollama 卸载模型"""
-    # 1. 直接杀 llama-server.exe（最可靠）
-    try:
-        subprocess.run(["taskkill", "/f", "/im", "llama-server.exe"],
-                       capture_output=True, timeout=3)
-    except Exception:
-        pass
-
-    # 2. 通知 Ollama 卸载模型
+def cleanup_all_sessions():
+    """清理所有资源：HTTP 连接 + 通知 Ollama 卸载模型"""
+    # 1. 通知 Ollama 卸载模型
     try:
         session = requests.Session()
         for inst in _ai_instances:
@@ -40,13 +45,13 @@ def _cleanup_all_sessions():
                 session.post(
                     f"{OLLAMA_HOST}/api/generate",
                     json={"model": inst.model, "keep_alive": 0},
-                    timeout=2
+                    timeout=2,
                 )
         session.close()
     except Exception:
         pass
 
-    # 3. 关闭所有 HTTP session
+    # 2. 关闭所有 HTTP session
     for inst in _ai_instances:
         try:
             inst._session.close()
@@ -64,15 +69,10 @@ def _clear_model_cache():
 SYSTEM_PROMPT = """你是智能桌面助手。规则：
 1. 不知道真实信息必须用工具获取，不许编造
 2. 用中文简短回复
-3. 需要工具时用 <tool>函数(参数=值)</tool> 格式
-
-可用工具：
-file_list(path) file_find(keyword,path) file_sort(path)
-web_fetch(url) web_search(keyword) web_download(url)
-task_run(name) system_info()"""
+3. 需要工具时调用提供的 function 工具，不要自己编造结果
+可用工具：file_list, file_find, file_sort, web_fetch, web_search, web_download, task_run, system_info, model_search, model_download, backup"""
 
 # 关键词 → 工具映射（在发送给 AI 前先匹配，避免模型瞎编）
-# 值格式：(工具名, 参数字典, 可选路径提取函数)
 KEYWORD_TOOLS = {
     "系统信息": ("task_run", {"name": "系统信息"}),
     "系统配置": ("task_run", {"name": "系统信息"}),
@@ -91,16 +91,181 @@ KEYWORD_TOOLS = {
     "目录": ("file_list", {}),
 }
 
+# Ollama function calling 工具定义
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "file_list",
+            "description": "列出指定目录的内容",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "目录路径，默认当前目录"}
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "file_find",
+            "description": "在指定目录中搜索文件",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {"type": "string", "description": "搜索关键词"},
+                    "path": {"type": "string", "description": "搜索路径，默认当前目录"},
+                },
+                "required": ["keyword"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "file_sort",
+            "description": "按文件类型自动整理目录",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "要整理的目录路径"}
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_fetch",
+            "description": "获取网页内容",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "网页 URL"}
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "搜索网络信息",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {"type": "string", "description": "搜索关键词"}
+                },
+                "required": ["keyword"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_download",
+            "description": "下载网络文件",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "文件 URL"}
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "task_run",
+            "description": "运行预设任务（如系统信息、磁盘分析、清理临时文件等）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "任务名称"}
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "system_info",
+            "description": "查看系统信息（操作系统、CPU、内存）",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "model_search",
+            "description": "查看推荐可下载的 AI 模型",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {"type": "string", "description": "搜索关键词，可选"}
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "model_download",
+            "description": "下载 AI 模型",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "模型名称或编号"}
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "backup",
+            "description": "备份指定目录",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "要备份的目录路径"}
+                },
+                "required": ["path"],
+            },
+        },
+    },
+]
+
+# 工具参数默认值映射（缺省参数时的兜底值）
+TOOL_DEFAULTS = {
+    "file_list": {"path": "."},
+    "file_find": {"path": "."},
+    "file_sort": {"path": "."},
+    "model_search": {"keyword": ""},
+}
+
 
 class AIEngine:
     def __init__(self, model: str = ""):
         self.api_base = OLLAMA_HOST
-        # Session 必须在 _pick_best_model 之前创建
         self._session = requests.Session()
         self.model = model or self._pick_best_model()
         self.conversation_history = []
         self.system_prompt = SYSTEM_PROMPT
+        self.max_history = self._load_max_history()
         _register_session(self)
+
+    @staticmethod
+    def _load_max_history() -> int:
+        try:
+            return int(load_json(CONFIG_PATH / "config.json", {}).get("ai", {}).get("max_history", 20))
+        except (TypeError, ValueError):
+            return 20
 
     def cleanup(self):
         """退出时清理 HTTP 连接"""
@@ -116,8 +281,8 @@ class AIEngine:
             return _model_cache
 
         try:
-            resp = self._session.get(f"{self.api_base}/api/tags", timeout=5)
-            models = resp.json().get("models", [])
+            with self._session.get(f"{self.api_base}/api/tags", timeout=5) as resp:
+                models = resp.json().get("models", [])
             names = [m["name"] for m in models]
             if not names:
                 return ""
@@ -128,24 +293,31 @@ class AIEngine:
                     if p in name.lower():
                         print(f"  {Fore.GREEN}  AI 模型: {name}{Style.RESET_ALL}")
                         _model_cache = name
-                        resp.close()
                         return name
             _model_cache = names[0]
             return names[0]
         except Exception:
             return ""
 
+    def _append_history(self, role: str, content: str):
+        """追加对话历史并裁剪，防止内存无限增长"""
+        self.conversation_history.append({"role": role, "content": content})
+        # 保留最近 max_history 条消息（按配置裁剪）
+        limit = max(self.max_history * 2, 4)
+        if len(self.conversation_history) > limit:
+            self.conversation_history = self.conversation_history[-limit:]
+
+    def _build_messages(self) -> list:
+        """构建 /api/chat 所需 messages（system + 历史）"""
+        return [{"role": "system", "content": self.system_prompt}] + self.conversation_history
+
     def _try_keyword_tool(self, message: str) -> Optional[dict]:
         """在发送给 AI 前，先匹配关键词直接执行工具（避免模型瞎编）"""
-        import re, os
-        from pathlib import Path
-
-        PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        home = Path.home()
+        project_dir = Path(__file__).parent.parent
 
         def _extract_path(msg: str) -> str:
             """从消息中提取路径，支持快捷名称（桌面/下载/文档）和盘符路径"""
-            # 快捷名称映射
-            home = Path.home()
             quick_map = {
                 "桌面": str(home / "Desktop"),
                 "下载": str(home / "Downloads"),
@@ -154,12 +326,11 @@ class AIEngine:
             for name, folder in quick_map.items():
                 if name in msg:
                     return folder
-            # 盘符路径：E:\回忆
+            # 盘符路径：E:\\回忆
             m = re.search(r'([A-Za-z]:\\[^\s]*)', msg)
             if not m:
                 return "."
             path = m.group(1)
-            # 去掉尾部动作词
             for suffix in ["帮我整理", "帮我排序", "帮我归类", "整理一下", "整理", "排序", "归类",
                            "帮我列出", "列出", "帮我查找", "查找", "搜索", "帮我搜索"]:
                 if path.endswith(suffix):
@@ -170,9 +341,8 @@ class AIEngine:
         # 特殊处理：整理/排序 → file_sort（需要提取路径）
         if "整理" in message or "排序" in message or "归类" in message:
             path = _extract_path(message)
-            # 安全保护：拒绝对自己项目目录整理（仅当显式指定路径时）
-            if path != "." and os.path.abspath(path) == PROJECT_DIR:
-                print(f"  [!] 不能整理项目自身目录，已跳过")
+            if path != "." and os.path.abspath(path) == str(project_dir):
+                print("  [!] 不能整理项目自身目录，已跳过")
                 return {"name": "noop", "args": {}}
             return {"name": "file_sort", "args": {"path": path}}
 
@@ -183,25 +353,28 @@ class AIEngine:
 
         # 特殊处理：删除空文件 → 直接执行
         if any(kw in message for kw in ["删除空文本", "删除空文件", "清理空文本", "清理空文件",
-                                          "删除没有的空文本", "删除没有的空文件"]):
-            from pathlib import Path
-            home = Path.home()
-            # 找桌面上的空 .txt 文件
+                                        "删除没有的空文本", "删除没有的空文件"]):
             desktop = home / "Desktop"
-            empty_files = [f for f in desktop.iterdir() if f.is_file() and f.suffix.lower() == ".txt" and f.stat().st_size == 0]
-            if empty_files:
-                print(f"\n  [找到 {len(empty_files)} 个空文本文件]")
-                for f in empty_files:
-                    f.unlink()
-                    print(f"  已删除: {f.name}")
+            if desktop.exists():
+                empty_files = [f for f in desktop.iterdir()
+                               if f.is_file() and f.suffix.lower() == ".txt" and f.stat().st_size == 0]
+                if empty_files:
+                    print(f"\n  [找到 {len(empty_files)} 个空文本文件]")
+                    for f in empty_files:
+                        try:
+                            f.unlink()
+                            print(f"  已删除: {f.name}")
+                        except OSError as e:
+                            print(f"  删除失败: {f.name} ({e})")
+                else:
+                    print("\n  [桌面没有空文本文件]")
             else:
-                print(f"\n  [桌面没有空文本文件]")
+                print("\n  [桌面目录不存在]")
             return {"name": "noop", "args": {}}
 
         # 特殊处理：打开应用 → 直接启动
         if any(kw in message for kw in ["打开", "启动", "运行"]):
             msg_lower = message.lower()
-            # 检测要打开的应用名
             app_map = {
                 "edge": "start msedge",
                 "浏览器": "start msedge",
@@ -213,16 +386,12 @@ class AIEngine:
                 "命令提示符": "start cmd",
                 "任务管理器": "taskmgr",
             }
-            launched = False
             for name, cmd in app_map.items():
                 if name in msg_lower:
-                    import subprocess
-                    subprocess.Popen(cmd, shell=True)
+                    if os.name == "nt":
+                        subprocess.Popen(cmd, shell=True)
                     print(f"\n  [已打开: {name}]")
-                    launched = True
-                    break
-            if launched:
-                return {"name": "noop", "args": {}}
+                    return {"name": "noop", "args": {}}
 
         # 常规关键词匹配
         for kw, (tool, args) in KEYWORD_TOOLS.items():
@@ -231,99 +400,96 @@ class AIEngine:
         return None
 
     def chat(self, message: str, stream: bool = True) -> Generator[str, None, None]:
-        """与 AI 对话（generate API 为主，比 chat API 快一倍）"""
+        """与 AI 对话（function calling + 关键词快路径）"""
         if not self.model:
             yield f"\n{Fore.RED}  AI 模型不可用{Style.RESET_ALL}"
             return
 
-        self.conversation_history.append({"role": "user", "content": message})
+        self._append_history("user", message)
 
         # 先尝试关键词匹配（避免模型瞎编）
         tool_call = self._try_keyword_tool(message)
         if tool_call:
-            # _execute_tool_and_continue 自己会输出 [执行: xxx]
             yield from self._execute_tool_and_continue(tool_call)
             return
 
-        # 构建对话历史文本（用标记格式防止 AI 输出 "Assistant:" 等）
-        history_text = ""
-        for m in self.conversation_history[-6:]:
-            if m["role"] == "user":
-                history_text += f"用户: {m['content']}\n"
-            else:
-                history_text += f"助手: {m['content']}\n"
+        # 原生 function calling
+        yield from self._chat_with_tools(stream)
 
-        full_prompt = f"{self.system_prompt}\n\n{history_text}助手: "
+    def _chat_with_tools(self, stream: bool = True) -> Generator[str, None, None]:
+        """使用 /api/chat + tools 原生函数调用"""
+        working = list(self._build_messages())
+        options = {"temperature": 0.3, "num_predict": 256}
 
-        payload = {
-            "model": self.model,
-            "prompt": full_prompt,
-            "stream": stream,
-            "options": {"temperature": 0.3, "num_predict": 256}
-        }
-
-        try:
-            resp = self._session.post(
-                f"{self.api_base}/api/generate",
-                json=payload, stream=stream, timeout=120
-            )
-            if resp.status_code == 404:
-                yield from self._chat_fallback(message, stream)
-                return
-            resp.raise_for_status()
-
-            full_response = ""
-            if stream:
-                for line in resp.iter_lines(decode_unicode=True):
-                    if line:
-                        try:
-                            data = json.loads(line)
-                            content = data.get("response", "")
-                            full_response += content
-                            yield content
-                            if data.get("done", False):
-                                break
-                        except json.JSONDecodeError:
-                            continue
-            else:
+        for _ in range(MAX_TOOL_TURNS):
+            payload = {
+                "model": self.model,
+                "messages": working,
+                "stream": False,
+                "tools": TOOLS,
+                "options": options,
+            }
+            try:
+                resp = self._session.post(
+                    f"{self.api_base}/api/chat", json=payload, timeout=120,
+                )
+                if resp.status_code == 404:
+                    yield from self._chat_fallback(stream)
+                    return
+                resp.raise_for_status()
                 data = resp.json()
-                content = data.get("response", "")
-                full_response = content
-                yield content
+                msg = data.get("message", {})
+                content = msg.get("content", "")
+                tool_calls = msg.get("tool_calls") or []
 
-            resp.close()
+                if content:
+                    yield content
 
-            if full_response.strip():
-                full_response = full_response.strip()
-                self.conversation_history.append({
-                    "role": "assistant", "content": full_response
-                })
-                tool_call = self._parse_tool_call(full_response)
-                if tool_call:
-                    yield from self._execute_tool_and_continue(tool_call)
+                if not tool_calls:
+                    # 无工具调用 → 本轮结束
+                    if content.strip():
+                        self._append_history("assistant", content.strip())
+                    return
 
-        except requests.exceptions.ConnectionError:
-            yield f"\n  Ollama 未运行"
-        except requests.exceptions.Timeout:
-            yield f"\n  AI 响应超时（模型较慢），建议换个更小的模型"
-        except Exception as e:
-            yield f"\n  出错: {e}"
+                # 记录 assistant 的工具调用请求
+                assistant_msg = {"role": "assistant", "content": content or "", "tool_calls": tool_calls}
+                working.append(assistant_msg)
 
-    def _chat_fallback(self, message: str, stream: bool = True):
-        """备用方案：使用 chat API"""
+                # 逐个执行工具并把结果回填给模型
+                for tc in tool_calls:
+                    fn = tc.get("function", {})
+                    name = fn.get("name", "")
+                    args = fn.get("arguments", {}) or {}
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except (json.JSONDecodeError, TypeError):
+                            args = {}
+                    yield f"\n  [执行: {name}] "
+                    result = self._run_tool(name, args)
+                    working.append({"role": "tool", "content": result})
+            except requests.exceptions.ConnectionError:
+                yield "\n  Ollama 未运行"
+                return
+            except requests.exceptions.Timeout:
+                yield "\n  AI 响应超时（模型较慢），建议换个更小的模型"
+                return
+            except Exception as e:
+                logger.exception("AI 对话出错")
+                yield f"\n  出错: {e}"
+                return
+
+    def _chat_fallback(self, stream: bool = True) -> Generator[str, None, None]:
+        """备用方案：使用 chat API（不带 tools）"""
         chat_payload = {
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": f"【用中文回复】{message}"}
-            ],
+            "messages": self._build_messages(),
             "stream": stream,
-            "options": {"temperature": 0.3, "num_predict": 256}
+            "options": {"temperature": 0.3, "num_predict": 256},
         }
         try:
             resp = self._session.post(
-                f"{self.api_base}/api/chat",
-                json=chat_payload, stream=stream, timeout=120
+                f"{self.api_base}/api/chat", json=chat_payload, stream=stream, timeout=120,
             )
             resp.raise_for_status()
             full_response = ""
@@ -344,11 +510,9 @@ class AIEngine:
                 full_response = data.get("message", {}).get("content", "")
             resp.close()
             if full_response.strip():
-                self.conversation_history.append({
-                    "role": "assistant", "content": full_response.strip()
-                })
+                self._append_history("assistant", full_response.strip())
         except Exception:
-            yield f"\n  AI 对话失败"
+            yield "\n  AI 对话失败"
 
     def ask(self, message: str) -> str:
         """一次性问答"""
@@ -357,91 +521,72 @@ class AIEngine:
             result += chunk
         return result
 
-    def _parse_tool_call(self, text: str) -> Optional[dict]:
-        import re
-        # 优先匹配 <tool> 标签格式
-        match = re.search(r'<tool>(\w+)\(([^)]*)\)</tool>', text)
-        if match:
-            tool_name = match.group(1)
-            raw_args = match.group(2)
-        else:
-            # 备选：匹配裸函数调用格式 file_list(path="xxx") 或 function_name()
-            match = re.search(r'^(\w+)\(([^)]*)\)\s*$', text.strip())
-            if match:
-                tool_name = match.group(1)
-                raw_args = match.group(2)
-            else:
-                return None
-
-        args = {}
-        if raw_args.strip():
-            for part in raw_args.split(","):
-                if "=" in part:
-                    key, val = part.split("=", 1)
-                    args[key.strip()] = val.strip().strip("'\"")
-        return {"name": tool_name, "args": args}
-
-    def _execute_tool_and_continue(self, tool_call: dict):
+    def _run_tool(self, name: str, args: dict) -> str:
+        """执行工具并返回文本结果"""
+        from .backup_manager import BackupManager
         from .file_manager import FileManager
         from .model_manager import ModelManager
-        from .web_automation import WebAutomation
         from .task_automation import TaskAutomation
-        from .backup_manager import BackupManager
-        name = tool_call["name"]
-        args = tool_call["args"]
+        from .web_automation import WebAutomation
 
-        # noop = 已由关键词匹配直接处理，不再输出多余信息
         if name == "noop":
-            return
+            return ""
 
-        yield f"\n  [执行: {name}] "
         try:
-            result = ""
             if name == "file_list":
                 FileManager().list_files(args.get("path", "."))
-                result = "文件列表已显示"
-            elif name == "file_find":
+                return "文件列表已显示"
+            if name == "file_find":
                 FileManager().find_files(args.get("keyword", ""), args.get("path", "."))
-                result = "搜索结果已显示"
-            elif name == "file_sort":
+                return "搜索结果已显示"
+            if name == "file_sort":
                 FileManager().sort_files_by_type(args.get("path", "."))
-                result = "文件整理完成"
-            elif name == "web_fetch":
+                return "文件整理完成"
+            if name == "web_fetch":
                 WebAutomation().fetch_page(args.get("url", ""))
-                result = "网页内容已获取"
-            elif name == "web_search":
+                return "网页内容已获取"
+            if name == "web_search":
                 WebAutomation().search(args.get("keyword", ""))
-                result = "搜索结果已显示"
-            elif name == "web_download":
+                return "搜索结果已显示"
+            if name == "web_download":
                 WebAutomation().download_file(args.get("url", ""))
-                result = "下载完成"
-            elif name == "task_run":
+                return "下载完成"
+            if name == "task_run":
                 TaskAutomation().run_task(args.get("name", ""))
-                result = "任务执行完成"
-            elif name == "model_search":
+                return "任务执行完成"
+            if name == "model_search":
                 ModelManager().search_models(args.get("keyword", ""))
-                result = "模型列表已显示"
-            elif name == "model_download":
+                return "模型列表已显示"
+            if name == "model_download":
                 ModelManager().download_model(args.get("name", ""))
-                result = "模型下载中"
-            elif name == "backup":
+                return "模型下载中"
+            if name == "backup":
                 BackupManager().backup_directory(args.get("path", ""))
-                result = "备份完成"
-            elif name == "system_info":
+                return "备份完成"
+            if name == "system_info":
                 TaskAutomation().run_task("系统信息")
-                result = "系统信息已显示"
-            else:
-                result = f"未知工具: {name}"
-            yield f"OK. {result}\n"
-            yield f"刚刚执行了{name}"
+                return "系统信息已显示"
+            return f"未知工具: {name}"
         except Exception as e:
-            yield f"\n  执行失败: {e}"
+            logger.exception("工具执行失败")
+            return f"执行失败: {e}"
+
+    def _execute_tool_and_continue(self, tool_call: dict) -> Generator[str, None, None]:
+        """执行关键词匹配出的工具调用（兼容旧流程）"""
+        if tool_call.get("name") == "noop":
+            return
+        name = tool_call["name"]
+        args = tool_call["args"]
+        defaults = TOOL_DEFAULTS.get(name, {})
+        for key, val in defaults.items():
+            args.setdefault(key, val)
+        yield f"\n  [执行: {name}] "
+        yield f"OK. {self._run_tool(name, args)}"
 
     def list_available_models(self) -> list:
         try:
-            resp = self._session.get(f"{self.api_base}/api/tags", timeout=5)
-            models = resp.json().get("models", [])
-            resp.close()
+            with self._session.get(f"{self.api_base}/api/tags", timeout=5) as resp:
+                models = resp.json().get("models", [])
             return [{
                 "name": m["name"],
                 "size": self._format_size(m.get("size", 0)),
@@ -452,46 +597,45 @@ class AIEngine:
             return []
 
     def pull_model(self, name: str):
+        """从 Ollama 拉取模型"""
         print(f"  正在拉取模型: {name}")
         print(f"  {'='*50}")
         try:
-            resp = self._session.post(
+            with self._session.post(
                 f"{self.api_base}/api/pull",
                 json={"name": name, "stream": True},
-                stream=True, timeout=300
-            )
-            resp.raise_for_status()
-            for line in resp.iter_lines(decode_unicode=True):
-                if line:
-                    try:
-                        data = json.loads(line)
-                        status = data.get("status", "")
-                        if "downloading" in status:
-                            total = data.get("total", 0)
-                            completed = data.get("completed", 0)
-                            if total:
-                                pct = completed / total * 100
-                                bar = "#" * int(pct / 5) + "." * (20 - int(pct / 5))
-                                print(f"\r  [{bar}] {pct:.0f}% {self._format_size(completed)}/{self._format_size(total)}", end="")
+                stream=True, timeout=300,
+            ) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines(decode_unicode=True):
+                    if line:
+                        try:
+                            data = json.loads(line)
+                            status = data.get("status", "")
+                            if "downloading" in status:
+                                total = data.get("total", 0)
+                                completed = data.get("completed", 0)
+                                if total:
+                                    pct = completed / total * 100
+                                    bar = "#" * int(pct / 5) + "." * (20 - int(pct / 5))
+                                    print(f"\r  [{bar}] {pct:.0f}% {self._format_size(completed)}/{self._format_size(total)}", end="")
+                                else:
+                                    print(f"\r  {status}", end="")
+                            elif status == "success":
+                                print("\n  完成！")
+                                break
                             else:
-                                print(f"\r  {status}", end="")
-                        elif status == "success":
-                            print(f"\n  完成！")
-                            break
-                        else:
-                            print(f"\r  {status}")
-                    except json.JSONDecodeError:
-                        pass
-            resp.close()
+                                print(f"\r  {status}")
+                        except json.JSONDecodeError:
+                            pass
+            _clear_model_cache()
         except Exception as e:
+            logger.exception("模型拉取失败")
             print(f"  拉取失败: {e}")
 
     def _format_size(self, size: int) -> str:
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if size < 1024:
-                return f"{size:.1f} {unit}"
-            size /= 1024
-        return f"{size:.1f} PB"
+        from .utils import format_size
+        return format_size(size)
 
     def clear_history(self):
         self.conversation_history = []

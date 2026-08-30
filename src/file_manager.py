@@ -1,11 +1,13 @@
 """
 文件管理模块 - 文件浏览、搜索、整理
 """
-import os
-import shutil
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
 from colorama import Fore, Style
+
+from .utils import dir_size, format_size
+
 
 class FileManager:
     def __init__(self):
@@ -39,15 +41,17 @@ class FileManager:
 
         # 显示目录
         for d in sorted(dirs):
-            size_info = self._get_dir_size(d)
+            size_info = format_size(dir_size(d))
             print(f"  {Fore.BLUE}📂 {d.name}/{Style.RESET_ALL}  {Fore.WHITE}{size_info}{Style.RESET_ALL}")
 
         # 显示文件
         for f in sorted(files):
-            size = f.stat().st_size
-            size_str = self._format_size(size)
-            modified = datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-            print(f"  {Fore.GREEN}📄 {f.name}{Style.RESET_ALL}  {Fore.YELLOW}{size_str}{Style.RESET_ALL}  {Fore.WHITE}{modified}{Style.RESET_ALL}")
+            try:
+                size = f.stat().st_size
+                modified = datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+            except OSError:
+                continue
+            print(f"  {Fore.GREEN}📄 {f.name}{Style.RESET_ALL}  {Fore.YELLOW}{format_size(size)}{Style.RESET_ALL}  {Fore.WHITE}{modified}{Style.RESET_ALL}")
 
         print(f"{Fore.WHITE}{'='*60}{Style.RESET_ALL}")
         print(f"{Fore.CYAN}总计: {len(dirs)} 个目录, {len(files)} 个文件{Style.RESET_ALL}")
@@ -65,11 +69,14 @@ class FileManager:
                 if count >= max_results:
                     print(f"{Fore.YELLOW}...(显示前 {max_results} 条结果){Style.RESET_ALL}")
                     break
-                if item.is_file():
-                    size_str = self._format_size(item.stat().st_size)
-                    print(f"  {Fore.GREEN}📄 {item.relative_to(target)}{Style.RESET_ALL}  {Fore.YELLOW}{size_str}{Style.RESET_ALL}")
-                else:
-                    print(f"  {Fore.BLUE}📂 {item.relative_to(target)}/{Style.RESET_ALL}")
+                try:
+                    if item.is_file():
+                        size_str = format_size(item.stat().st_size)
+                        print(f"  {Fore.GREEN}📄 {item.relative_to(target)}{Style.RESET_ALL}  {Fore.YELLOW}{size_str}{Style.RESET_ALL}")
+                    else:
+                        print(f"  {Fore.BLUE}📂 {item.relative_to(target)}/{Style.RESET_ALL}")
+                except OSError:
+                    continue
                 count += 1
         except PermissionError:
             pass
@@ -110,38 +117,21 @@ class FileManager:
         for item in target.iterdir():
             if item.is_file():
                 ext = item.suffix.lower()
-                moved_to = None
                 for category, exts in type_map.items():
                     if ext in exts:
                         dest_dir = target / category
                         dest_dir.mkdir(exist_ok=True)
-                        shutil.move(str(item), str(dest_dir / item.name))
-                        moved_to = category
+                        try:
+                            import shutil
+                            shutil.move(str(item), str(dest_dir / item.name))
+                        except OSError as e:
+                            print(f"  {Fore.RED}移动失败: {item.name} ({e}){Style.RESET_ALL}")
+                            break
                         moved += 1
+                        print(f"  {Fore.GREEN}📄 {item.name} → {category}/{Style.RESET_ALL}")
                         break
-                if moved_to:
-                    print(f"  {Fore.GREEN}📄 {item.name} → {moved_to}/{Style.RESET_ALL}")
 
         if moved == 0:
             print(f"{Fore.YELLOW}  没有需要整理的文件{Style.RESET_ALL}")
         else:
             print(f"{Fore.CYAN}已整理 {moved} 个文件{Style.RESET_ALL}")
-
-    def _get_dir_size(self, path: Path) -> str:
-        """估算目录大小"""
-        total = 0
-        try:
-            for f in path.rglob('*'):
-                if f.is_file():
-                    total += f.stat().st_size
-        except (PermissionError, OSError):
-            return "?"
-        return self._format_size(total)
-
-    def _format_size(self, size: int) -> str:
-        """格式化文件大小"""
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if size < 1024:
-                return f"{size:.1f} {unit}"
-            size /= 1024
-        return f"{size:.1f} PB"

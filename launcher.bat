@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 title Smart Desktop Assistant
-cd /d E:\aiyidai
+cd /d "%~dp0"
 setlocal enabledelayedexpansion
 
 echo.

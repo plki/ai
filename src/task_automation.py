@@ -1,85 +1,88 @@
 """
 任务自动化模块 - 预设任务 & 自定义任务管理
 """
-import os
 import json
-import subprocess
-import psutil
 import platform
-from pathlib import Path
+import subprocess
 from datetime import datetime
+from pathlib import Path
+
+import psutil
 from colorama import Fore, Style
+
+from .utils import PROJECT_ROOT, format_size
+
 
 class TaskAutomation:
     def __init__(self):
-        self.tasks_file = Path(__file__).parent.parent / "config" / "tasks.json"
+        self.tasks_file = PROJECT_ROOT / "config" / "tasks.json"
         self.tasks = self._load_tasks()
 
     def _load_tasks(self):
-        """加载任务列表"""
-        default_tasks = {
+        """加载任务列表（文件不存在时写入默认任务）"""
+        if self.tasks_file.exists():
+            try:
+                with open(self.tasks_file, encoding='utf-8') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError):
+                pass
+        default_tasks = self._default_tasks()
+        try:
+            self.tasks_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.tasks_file, 'w', encoding='utf-8') as f:
+                json.dump(default_tasks, f, ensure_ascii=False, indent=2)
+        except OSError:
+            pass
+        return default_tasks
+
+    @staticmethod
+    def _default_tasks() -> dict:
+        return {
             "tasks": [
                 {
                     "name": "系统信息",
                     "description": "查看操作系统、CPU、内存信息",
                     "type": "builtin",
-                    "handler": "system_info"
+                    "handler": "system_info",
                 },
                 {
                     "name": "磁盘分析",
                     "description": "查看各磁盘使用情况",
-                    "type": "command",
-                    "command": "wmic logicaldisk get caption,size,freespace /format:table"
+                    "type": "builtin",
+                    "handler": "disk_usage",
                 },
                 {
                     "name": "清理临时文件",
-                    "description": "删除 Windows 临时文件释放空间",
-                    "type": "command",
-                    "command": "del /f /s /q %temp%\\* >nul 2>&1 & echo 临时文件已清理"
+                    "description": "清理系统临时文件释放空间",
+                    "type": "builtin",
+                    "handler": "cleanup_temp",
                 },
                 {
                     "name": "网络诊断",
                     "description": "测试网络连通性 (ping 114.114.114.114)",
                     "type": "command",
-                    "command": "ping 114.114.114.114 -n 4"
+                    "command": "ping 114.114.114.114 -n 4",
                 },
                 {
                     "name": "进程列表",
                     "description": "查看当前运行的进程 (按内存排序 Top 10)",
                     "type": "builtin",
-                    "handler": "process_list"
+                    "handler": "process_list",
                 },
                 {
                     "name": "关机定时",
                     "description": "设置定时关机 (默认 30 分钟后)",
                     "type": "command",
-                    "command": "shutdown /s /t 1800"
+                    "command": "shutdown /s /t 1800",
                 },
                 {
                     "name": "取消关机",
                     "description": "取消已设置的定时关机",
                     "type": "command",
-                    "command": "shutdown /a"
-                },
-                {
-                    "name": "WiFi 密码查看",
-                    "description": "查看当前连接的 WiFi 密码",
-                    "type": "command",
-                    "command": "netsh wlan show profile name=* key=clear | findstr /R \"^.*配置文件.*$ ^.*关键内容.*$\""
+                    "command": "shutdown /a",
                 },
             ]
         }
-
-        if self.tasks_file.exists():
-            try:
-                with open(self.tasks_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, IOError):
-                pass
-
-        with open(self.tasks_file, 'w', encoding='utf-8') as f:
-            json.dump(default_tasks, f, ensure_ascii=False, indent=2)
-        return default_tasks
 
     def list_tasks(self):
         """列出所有可用任务"""
@@ -129,7 +132,7 @@ class TaskAutomation:
             return
 
         print(f"\n{Fore.CYAN}▶️  执行任务: {task['name']}{Style.RESET_ALL}")
-        print(f"{Fore.WHITE}📝 {task['description']}{Style.RESET_ALL}")
+        print(f"{Fore.WHITE}📝 {task.get('description', '')}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
         print(f"{Fore.WHITE}{'='*60}{Style.RESET_ALL}")
 
@@ -141,6 +144,10 @@ class TaskAutomation:
                     self._handle_system_info()
                 elif handler == "process_list":
                     self._handle_process_list()
+                elif handler == "disk_usage":
+                    self._handle_disk_usage()
+                elif handler == "cleanup_temp":
+                    self._handle_cleanup_temp()
                 else:
                     print(f"{Fore.RED}[X] 未知的内置任务: {handler}{Style.RESET_ALL}")
 
@@ -150,7 +157,7 @@ class TaskAutomation:
                     shell=True,
                     capture_output=True,
                     text=True,
-                    timeout=60
+                    timeout=60,
                 )
                 if result.stdout:
                     print(result.stdout)
@@ -183,21 +190,53 @@ class TaskAutomation:
 
     def _handle_system_info(self):
         """内置：显示系统信息"""
+        vm = psutil.virtual_memory()
         info = [
-            ("操作系统", f"{platform.system()} {platform.version()}"),
+            ("操作系统", f"{platform.system()} {platform.release()}"),
             ("主机名", platform.node()),
             ("处理器", platform.processor()),
             ("CPU 核心", f"{psutil.cpu_count(logical=True)} 逻辑核心"),
             ("CPU 使用率", f"{psutil.cpu_percent(interval=0.5)}%"),
-            ("内存总量", self._format_size(psutil.virtual_memory().total)),
-            ("内存可用", self._format_size(psutil.virtual_memory().available)),
-            ("内存使用率", f"{psutil.virtual_memory().percent}%"),
+            ("内存总量", format_size(vm.total)),
+            ("内存可用", format_size(vm.available)),
+            ("内存使用率", f"{vm.percent}%"),
             ("Python 版本", platform.python_version()),
         ]
 
         max_key = max(len(k) for k, _ in info)
         for key, val in info:
             print(f"  {Fore.CYAN}{key.rjust(max_key)}{Style.RESET_ALL} : {Fore.WHITE}{val}{Style.RESET_ALL}")
+
+    def _handle_disk_usage(self):
+        """内置：显示磁盘使用情况（跨平台，替代 wmic）"""
+        print(f"  {'挂载点':<24} {'总容量':<10} {'已用':<10} {'可用':<10} {'使用率'}")
+        print(f"  {'-'*24} {'-'*10} {'-'*10} {'-'*10} {'-'*6}")
+        for part in psutil.disk_partitions(all=False):
+            try:
+                usage = psutil.disk_usage(part.mountpoint)
+                label = part.mountpoint
+                print(f"  {label:<24} {format_size(usage.total):<10} "
+                      f"{format_size(usage.used):<10} {format_size(usage.free):<10} {usage.percent}%")
+            except (PermissionError, OSError):
+                continue
+
+    def _handle_cleanup_temp(self):
+        """内置：清理临时文件（跨平台）"""
+        import shutil
+        import tempfile
+
+        temp_dir = Path(tempfile.gettempdir())
+        removed = 0
+        for item in temp_dir.iterdir():
+            try:
+                if item.is_dir():
+                    shutil.rmtree(item, ignore_errors=True)
+                else:
+                    item.unlink()
+                removed += 1
+            except OSError:
+                continue
+        print(f"{Fore.CYAN}  已尝试清理 {removed} 项临时文件（跳过正在使用中的文件）{Style.RESET_ALL}")
 
     def _handle_process_list(self):
         """内置：按内存排序显示 Top 10 进程"""
@@ -218,7 +257,7 @@ class TaskAutomation:
         print(f"  {'PID':<8} {'内存':<10} {'CPU':<8} {'名称'}")
         print(f"  {'---':<8} {'----':<10} {'---':<8} {'----'}")
         for p in processes[:10]:
-            mem = self._format_size(p['memory'])
+            mem = format_size(p['memory'])
             print(f"  {Fore.GREEN}{p['pid']:<8}{Style.RESET_ALL} "
                   f"{Fore.YELLOW}{mem:<10}{Style.RESET_ALL} "
                   f"{Fore.WHITE}{p['cpu']:<8.1f}{Style.RESET_ALL} "
@@ -227,10 +266,3 @@ class TaskAutomation:
     def _save_tasks(self):
         with open(self.tasks_file, 'w', encoding='utf-8') as f:
             json.dump(self.tasks, f, ensure_ascii=False, indent=2)
-
-    def _format_size(self, size: int) -> str:
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if size < 1024:
-                return f"{size:.1f} {unit}"
-            size /= 1024
-        return f"{size:.1f} PB"
