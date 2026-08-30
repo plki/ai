@@ -47,6 +47,24 @@ config api https://api.deepseek.com/v1 sk-你的key deepseek-chat
 
 云端模式也支持 function calling 工具调用，与本地 Ollama 体验一致。
 
+## ☁️ 云端在线版（免费部署到 Cloudflare，别人免安装直接用）
+
+本仓库内置 `cloudflare/` 目录，可把**网页版聊天**免费部署到 Cloudflare Pages，生成一个公网链接，**别人打开网页即可用，无需下载安装任何东西**。
+
+**线上版已具备：** SSE 流式输出、多会话历史（浏览器本地保存）、Markdown 渲染、代码高亮、停止生成、手机/电脑自适应。支持任意 OpenAI 兼容接口（DeepSeek / 通义 / Moonshot / OpenAI ...），API Key 只保存在访问者浏览器，不让中间服务器存储。
+
+### 一分钟免费部署（dash.cloudflare.com）
+
+1. 打开 https://dash.cloudflare.com 并登录（免费注册）
+2. 左侧进入 **Workers 与 Pages** → **创建** → **Pages** → **连接到 Git**
+3. 选择本仓库（如 `plki/ai`），框架预设选 **None**，**构建命令与输出目录都留空**
+4. 关键一步：在「配置」里把 **根目录** 改为 `cloudflare`（否则 `functions/` 不会生效）
+5. 点 **保存并部署**，约 1 分钟后得到公网地址 `https://你的项目名.pages.dev`
+
+用户访问后，只需在页面右上角「设置」填自己的 Base URL / API Key / 模型名，即可正常对话。
+
+> 免费额度：Pages Functions 每天 10 万请求，个人分享完全够用。详细说明见 `cloudflare/README.md`。
+
 ### 网页版特色
 
 - **多会话管理**：左侧会话列表，支持新建、切换、删除，类似 DeepSeek 聊天界面；默认收起，点击顶栏 ☰ 展开
