@@ -53,6 +53,9 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
            display: flex; flex-direction: column; flex-shrink: 0; transition: margin-left .25s; }
 #sidebar.hidden { margin-left: -260px; }
 .sidebar-head { padding: 14px 12px; display: flex; gap: 8px; border-bottom: 1px solid var(--border); }
+#sidebarCloseBtn { flex-shrink: 0; line-height: 1; font-size: 14px; padding: 6px 9px; }
+#sidebarFoot { padding: 10px 12px; border-top: 1px solid var(--border); }
+#settingsSideBtn { width: 100%; justify-content: center; }
 .btn { background: #f2f3f5; color: var(--text); border: 1px solid var(--border); padding: 7px 12px;
        border-radius: 8px; cursor: pointer; font-size: 13px; transition: background .15s; white-space: nowrap; }
 .btn:hover { background: #e7e9ee; }
@@ -148,11 +151,15 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 .field .hint { font-size: 12px; color: var(--text-sub); margin-top: 4px; line-height: 1.5; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
+#sidebarMask { display: none; }
+
 @media (max-width: 768px) {
   #sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 50; width: 85vw; max-width: 300px;
              box-shadow: 2px 0 12px rgba(0,0,0,.2); }
   #sidebar.hidden { margin-left: -300px; }
-  #topbar { padding: 0 10px; gap: 8px; }
+  body.sb-open #sidebarMask { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.35);
+                              z-index: 55; }
+  #topbar { padding: 0 10px; gap: 8px; position: relative; z-index: 60; }
   #modelTag { display: none; }
   #modelSelect { max-width: 150px; }
   #title { font-size: 14px; }
@@ -163,6 +170,7 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
   .bubble { max-width: 88%; }
   .avatar { width: 30px; height: 30px; font-size: 14px; }
   #settingsTopBtn { font-size: 12px; padding: 6px 9px; }
+  .conv-item .d { display: block; }
 }
 
 /* ========== 桌面版扩展样式 ========== */
@@ -186,9 +194,14 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 <div id="sidebar" class="hidden">
   <div class="sidebar-head" onclick="if(!event.target.closest('button'))toggleSidebar()" title="点击空白处收起">
     <button class="btn primary" id="newChatBtn">+ 新建对话</button>
+    <button class="btn ghost" id="sidebarCloseBtn" onclick="toggleSidebar()" title="收起侧边栏">&#10005;</button>
   </div>
   <div id="convList"></div>
+  <div id="sidebarFoot">
+    <button class="btn ghost" id="settingsSideBtn" onclick="openSettings()">&#9881; 设置</button>
+  </div>
 </div>
+<div id="sidebarMask" onclick="toggleSidebar()"></div>
 
 <!-- 主区域 -->
 <div id="main">
@@ -197,7 +210,7 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
     <div id="title">新对话</div>
     <span id="modelTag"></span>
     <select id="modelSelect" title="切换模型" onchange="onModelChange()"></select>
-    <button class="btn" id="settingsTopBtn" onclick="openSettings()">设置</button>
+    <button class="btn" id="settingsTopBtn" onclick="openSettings()">&#9881; 设置</button>
   </div>
   <div id="chat"></div>
   <div id="inputbar">
@@ -399,9 +412,13 @@ function copyCode(btn) {
 /* ================= 侧边栏 ================= */
 function toggleSidebar() {
   const sb = document.getElementById('sidebar');
-  sb.classList.toggle('hidden');
+  const hidden = sb.classList.toggle('hidden');
+  document.body.classList.toggle('sb-open', !hidden);
 }
-function closeSidebarIfMobile() { if (window.innerWidth <= 768) document.getElementById('sidebar').classList.add('hidden'); }
+function closeSidebarIfMobile() {
+  document.body.classList.remove('sb-open');
+  if (window.innerWidth <= 768) document.getElementById('sidebar').classList.add('hidden');
+}
 
 function convTitle(messages) {
   const first = messages.find(m => m.role === 'user');
@@ -563,18 +580,18 @@ async function send() {
   const input = document.getElementById('input');
   const text = input.value.trim();
   if (!text || state.busy) return;
-  if (!state.convId) {
-    const r = await fetch('/api/conversations', { method: 'POST' });
-    const d = await r.json();
-    convs.unshift(d.conversation);
-    state.convId = d.conversation.id;
-    renderConvList();
-  }
-  input.value = '';
-  renderMsg('user', text);
-  addThinking();
-  setBusy(true);
   try {
+    if (!state.convId) {
+      const r = await fetch('/api/conversations', { method: 'POST' });
+      const d = await r.json();
+      convs.unshift(d.conversation);
+      state.convId = d.conversation.id;
+      renderConvList();
+    }
+    input.value = '';
+    renderMsg('user', text);
+    addThinking();
+    setBusy(true);
     const resp = await fetch('/api/chat', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -672,13 +689,15 @@ function onModelChange() {
 
 /* ================= 设置 ================= */
 async function openSettings() {
-  const r = await fetch('/api/status');
-  const d = await r.json();
-  document.getElementById('provider').value = d.provider === 'cloud' ? 'cloud' : (d.provider === 'ollama' ? 'ollama' : 'auto');
-  document.getElementById('baseUrl').value = d.cloud_base_url || '';
-  document.getElementById('apiKey').value = '';
-  document.getElementById('cloudModel').value = d.cloud_model || '';
-  document.getElementById('confirmTools').value = d.confirm_tools ? 'true' : 'false';
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    document.getElementById('provider').value = d.provider === 'cloud' ? 'cloud' : (d.provider === 'ollama' ? 'ollama' : 'auto');
+    document.getElementById('baseUrl').value = d.cloud_base_url || '';
+    document.getElementById('apiKey').value = '';
+    document.getElementById('cloudModel').value = d.cloud_model || '';
+    document.getElementById('confirmTools').value = d.confirm_tools ? 'true' : 'false';
+  } catch (e) {}
   document.getElementById('settingsModal').classList.add('open');
 }
 function closeSettings() { document.getElementById('settingsModal').classList.remove('open'); }
