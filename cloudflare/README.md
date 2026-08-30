@@ -31,6 +31,10 @@ cloudflare/
 4. 在「配置」里把 **根目录** 设为 `cloudflare`（重要，这样 `functions/` 才会被识别）
 5. 点击 **保存并部署**，稍等片刻即得到 `https://<项目名>.pages.dev` 地址
 
+> **重要警告：不要填写「部署命令」。** 如果填了 `npx wrangler deploy`，它是 Workers 的命令，而且会在仓库根目录执行（读不到本目录的 `wrangler.toml`），会报错 `Missing entry-point to Worker script or to assets directory`。Git 连接方式留空部署命令即可，Cloudflare 会自动构建。
+>
+> 若确实要用部署命令（不推荐），必须同时满足：根目录设为 `cloudflare`，命令填 `npx wrangler pages deploy`。
+
 ### 方式二：Wrangler CLI 上传
 
 ```bash

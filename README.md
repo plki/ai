@@ -61,6 +61,8 @@ config api https://api.deepseek.com/v1 sk-你的key deepseek-chat
 4. 关键一步：在「配置」里把 **根目录** 改为 `cloudflare`（否则 `functions/` 不会生效）
 5. 点 **保存并部署**，约 1 分钟后得到公网地址 `https://你的项目名.pages.dev`
 
+> **重要警告：不要在「部署命令」里填 `npx wrangler deploy`。** 那是 Workers 的命令，且在仓库根目录执行（读不到 `cloudflare/wrangler.toml`），会报错 `Missing entry-point to Worker script or to assets directory`。Git 连接方式留空部署命令即可，Cloudflare 会自动构建。
+
 用户访问后，只需在页面右上角「设置」填自己的 Base URL / API Key / 模型名，即可正常对话。
 
 > 免费额度：Pages Functions 每天 10 万请求，个人分享完全够用。详细说明见 `cloudflare/README.md`。
