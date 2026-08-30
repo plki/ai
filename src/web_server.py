@@ -75,8 +75,6 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 .conv-item .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conv-item .d { flex-shrink: 0; display: none; }
 .conv-item:hover .d { display: block; }
-.sidebar-foot { padding: 10px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
-.sidebar-foot .btn { flex: 1; }
 
 /* ========== 主区域 ========== */
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -93,19 +91,33 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
            background: var(--bg); color: var(--text); border-radius: 8px; cursor: pointer; flex-shrink: 0; }
 #menuBtn:hover { background: var(--sidebar-hover); }
 #settingsTopBtn { flex-shrink: 0; }
+
+@media (max-width: 768px) {
+  #sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 50; width: 85vw; max-width: 300px;
+             box-shadow: 2px 0 12px rgba(0,0,0,.2); }
+  #sidebar.hidden { margin-left: -300px; }
+  #topbar { padding: 0 10px; gap: 8px; }
+  #modelTag { display: none; }
+  #modelSelect { max-width: 150px; }
+  #title { font-size: 14px; }
+  #chat { padding: 14px; }
+  #inputbar { padding: 10px 12px; }
+  #inputWrap { max-width: 100%; }
+  .row { max-width: 100%; }
+  .bubble { max-width: 88%; }
+  .avatar { width: 30px; height: 30px; font-size: 14px; }
+  #settingsTopBtn { font-size: 12px; padding: 6px 9px; }
+}
 </style>
 </head>
 <body>
 
 <!-- 侧边栏 -->
 <div id="sidebar" class="hidden">
-  <div class="sidebar-head">
+  <div class="sidebar-head" onclick="if(!event.target.closest('button'))toggleSidebar()" title="点击空白处收起">
     <button class="btn primary" id="newChatBtn">+ 新建对话</button>
   </div>
   <div id="convList"></div>
-  <div class="sidebar-foot">
-    <button class="btn" onclick="toggleSidebar()">收起</button>
-  </div>
 </div>
 
 <!-- 主区域 -->
