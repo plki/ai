@@ -49,6 +49,17 @@ if os.name == "nt":
 
 def main():
     """程序入口"""
+    # `python main.py web` 启动网页版界面
+    if len(sys.argv) > 1 and sys.argv[1] in ("web", "--web", "serve"):
+        try:
+            from src.web_server import run_web_server
+            run_web_server()
+            return
+        except KeyboardInterrupt:
+            return
+        except Exception as e:
+            print(f"\n[ERROR] 网页版启动失败: {e}")
+            return
     try:
         from src.cli import run_cli
         run_cli()

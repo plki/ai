@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-desktop-assistant"
-version = "0.4.0"
-description = "AI Desktop Assistant - 智能桌面助手，支持本地模型对话、文件管理、任务自动化与备份"
+version = "0.5.0"
+description = "AI Desktop Assistant - 智能桌面助手，支持本地/云端 AI 对话、文件管理、任务自动化与备份"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }

@@ -1,24 +1,36 @@
 {
-    "app": {
-        "name": "智能桌面助手",
-        "version": "0.4.0",
-        "data_dir": "data"
-    },
-    "models": {
-        "download_dir": "data/models",
-        "huggingface_mirror": "https://hf-mirror.com"
-    },
+  "app": {
+    "name": "智能桌面助手",
+    "version": "0.5.0",
+    "data_dir": "data"
+  },
+  "models": {
+    "download_dir": "data/models",
+    "huggingface_mirror": "https://hf-mirror.com"
+  },
     "ai": {
+        "provider": "auto",
         "ollama_host": "http://127.0.0.1:11434",
-        "auto_pull_small_model": false,
-        "max_history": 20
+    "cloud": {
+      "base_url": "",
+      "api_key": "",
+      "model": "",
+      "timeout": 60
     },
-    "file_manager": {
-        "trash_enabled": true,
-        "auto_backup": false
-    },
-    "scheduler": {
-        "enabled": false,
-        "check_interval_seconds": 30
-    }
+    "auto_pull_small_model": false,
+    "max_history": 20,
+    "confirm_tools": true
+  },
+  "web": {
+    "host": "0.0.0.0",
+    "port": 7860
+  },
+  "file_manager": {
+    "trash_enabled": true,
+    "auto_backup": false
+  },
+  "scheduler": {
+    "enabled": false,
+    "check_interval_seconds": 30
+  }
 }

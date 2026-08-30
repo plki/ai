@@ -75,6 +75,13 @@ def print_help():
             ("web search <关键词>", "搜索信息"),
             ("web download <URL> [文件名]", "下载文件"),
             ("web deploy <URL>", "自动识别并部署应用"),
+            ("web serve", "启动网页版界面 (浏览器访问)"),
+        ]),
+        ("[config] 配置", [
+            ("config show", "查看当前 AI 配置"),
+            ("config provider cloud|ollama|auto", "切换 AI 提供方 (云端/本地)"),
+            ("config api <url> <key> <模型>", "配置自己的云端 API (OpenAI 兼容)"),
+            ("config confirm on|off", "开关「AI 执行前先确认」"),
         ]),
         ("[AI] 模型管理", [
             ("model list", "列出已下载的模型"),
@@ -137,6 +144,9 @@ def run_cli():
             elif action == "chat":
                 handle_chat_command(parts[1:])
 
+            elif action == "config":
+                handle_config_command(parts[1:])
+
             elif action == "file":
                 handle_file_command(parts[1:])
 
@@ -176,6 +186,42 @@ def run_cli():
 
 # ========== 命令处理器 ==========
 
+def _print_confirm(plan: str):
+    """展示工具执行计划，返回是否执行"""
+    print(f"\n{Fore.YELLOW}[计划] 将执行以下操作:{Style.RESET_ALL}")
+    print(f"  {Fore.CYAN}-> {plan}{Style.RESET_ALL}")
+    while True:
+        try:
+            ans = input(f"{Fore.GREEN}  是否执行? (y/n): {Style.RESET_ALL}").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return False
+        if ans in ("y", "yes", "是", "执行", ""):
+            return True
+        if ans in ("n", "no", "否", "不", "取消"):
+            return False
+
+
+def _consume_chat(gen):
+    """消费 chat 生成器：自动处理 ConfirmRequest 确认交互，返回累计文本"""
+    decision = None
+    parts = []
+    while True:
+        try:
+            if decision is None:
+                chunk = next(gen)
+            else:
+                chunk = gen.send(decision)
+                decision = None
+            if hasattr(chunk, "plan"):
+                decision = _print_confirm(chunk.plan)
+            else:
+                print(chunk, end="", flush=True)
+                parts.append(chunk)
+        except StopIteration:
+            break
+    return "".join(parts)
+
+
 def handle_chat_command(args):
     """聊天模式"""
     from .ai_engine import AIEngine
@@ -188,8 +234,7 @@ def handle_chat_command(args):
             return
         ai = AIEngine()
         print(f"\n{Fore.CYAN}[chat] AI 思考中...{Style.RESET_ALL}", flush=True)
-        for chunk in ai.chat(question):
-            print(chunk, end="", flush=True)
+        _consume_chat(ai.chat(question))
         print()
 
     elif args and args[0] == "models":
@@ -247,14 +292,7 @@ def handle_chat_command(args):
                     continue
 
                 print(f"\n{Fore.CYAN}[AI] AI 回复:{Style.RESET_ALL}")
-                print(f"{Fore.YELLOW}[wait] 思考中...{Style.RESET_ALL}", end="", flush=True)
-                full_reply = ""
-                for chunk in ai.chat(user_input):
-                    if chunk.strip():
-                        if full_reply == "":
-                            print("\r" + " " * 40 + "\r", end="", flush=True)
-                        print(chunk, end="", flush=True)
-                        full_reply += chunk
+                full_reply = _consume_chat(ai.chat(user_input))
                 print()
                 if not full_reply.strip():
                     print(f"{Fore.YELLOW}（AI 没有返回内容，可能是模型响应超时）{Style.RESET_ALL}")
@@ -265,6 +303,84 @@ def handle_chat_command(args):
             except KeyboardInterrupt:
                 print(f"\n{Fore.YELLOW}[退出聊天模式]{Style.RESET_ALL}")
                 break
+
+
+def handle_config_command(args):
+    """AI 配置管理：切换 provider / 配置云端 API / 确认模式"""
+
+    from .ai_engine import AIEngine
+    from .utils import save_json
+
+    cfg = load_config()
+    CONFIG_JSON = CONFIG_PATH / "config.json"
+
+    def _show():
+        ai = cfg.get("ai", {})
+        prov = ai.get("provider", "auto")
+        print(f"\n{Fore.CYAN}[config] 当前 AI 配置{Style.RESET_ALL}")
+        print(f"{Fore.WHITE}{'=' * 50}{Style.RESET_ALL}")
+        print(f"  {Fore.GREEN}provider:{Style.RESET_ALL}    {prov}  (auto=云端优先)")
+        print(f"  {Fore.GREEN}确认模式:{Style.RESET_ALL}  {'开（AI 执行前需你确认）' if ai.get('confirm_tools', True) else '关（AI 自动执行）'}")
+        print(f"  {Fore.GREEN}max_history:{Style.RESET_ALL} {ai.get('max_history', 20)}")
+        engine = AIEngine()
+        if engine.provider.name == "cloud":
+            cloud_cfg = engine.provider
+            print(f"  {Fore.GREEN}云端 API:{Style.RESET_ALL}")
+            print(f"    Base URL: {cloud_cfg.base_url or '(未设置)'}")
+            print(f"    API Key:  {'***' + cloud_cfg.api_key[-4:] if cloud_cfg.api_key else '(未设置)'}")
+            print(f"    Model:    {cloud_cfg.model or '(未设置)'}")
+        else:
+            print(f"  {Fore.GREEN}本地 Ollama:{Style.RESET_ALL}")
+            print(f"    Host: {engine.provider.host}")
+            print(f"    Model: {engine.model or '(无模型)'}")
+        print()
+        prov_cmd = "  config provider cloud|ollama|auto"
+        api_cmd = "  config api <base_url> <api_key> <model>"
+        print(f"{Fore.YELLOW}常用:{Style.RESET_ALL}")
+        print(f"  {prov_cmd}")
+        print(f"  {api_cmd}")
+        print("  config confirm on|off")
+
+    if not args or args[0] == "show":
+        _show()
+        return
+    sub = args[0].lower()
+
+    if sub == "provider":
+        if len(args) < 2 or args[1] not in ("cloud", "ollama", "auto"):
+            print(f"{Fore.RED}用法: config provider cloud|ollama|auto{Style.RESET_ALL}")
+            return
+        cfg.setdefault("ai", {})["provider"] = args[1]
+        if save_json(CONFIG_JSON, cfg):
+            print(f"{Fore.GREEN}[OK] provider 已切换为: {args[1]}{Style.RESET_ALL}")
+        return
+
+    if sub in ("api", "cloud"):
+        if len(args) < 4:
+            print(f"{Fore.RED}用法: config api <base_url> <api_key> <model>{Style.RESET_ALL}")
+            return
+        base_url, api_key, model = args[1], args[2], args[3]
+        ai = cfg.setdefault("ai", {})
+        ai["provider"] = "cloud"
+        cloud = ai.setdefault("cloud", {})
+        cloud.update({"base_url": base_url, "api_key": api_key, "model": model})
+        if save_json(CONFIG_JSON, cfg):
+            print(f"{Fore.GREEN}[OK] 云端 API 已保存{Style.RESET_ALL}")
+            print(f"  Base URL: {base_url}")
+            print(f"  Model:    {model}")
+            print(f"{Fore.YELLOW}提示: 重新进入 chat 或执行 config show 生效{Style.RESET_ALL}")
+        return
+
+    if sub == "confirm":
+        if len(args) < 2 or args[1] not in ("on", "off"):
+            print(f"{Fore.RED}用法: config confirm on|off{Style.RESET_ALL}")
+            return
+        cfg.setdefault("ai", {})["confirm_tools"] = (args[1] == "on")
+        save_json(CONFIG_JSON, cfg)
+        print(f"{Fore.GREEN}[OK] 确认模式: {'开' if args[1]=='on' else '关'}{Style.RESET_ALL}")
+        return
+
+    print(f"{Fore.RED}未知子命令: {sub} (支持: show, provider, api, confirm){Style.RESET_ALL}")
 
 
 def handle_file_command(args):
@@ -320,9 +436,13 @@ def handle_web_command(args):
     from .web_automation import WebAutomation
     wa = WebAutomation()
     if not args:
-        print(f"{Fore.RED}用法: web fetch|download|search|deploy [参数]{Style.RESET_ALL}")
+        print(f"{Fore.RED}用法: web fetch|download|search|deploy|serve [参数]{Style.RESET_ALL}")
         return
     sub = args[0].lower()
+    if sub == "serve":
+        from .web_server import run_web_server
+        run_web_server()
+        return
     if sub == "fetch":
         if len(args) < 2:
             print(f"{Fore.RED}请指定 URL{Style.RESET_ALL}")
