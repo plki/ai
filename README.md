@@ -42,9 +42,16 @@ config api https://api.deepseek.com/v1 sk-你的key deepseek-chat
 # "ai": { "provider": "cloud", "cloud": { "base_url": "...", "api_key": "...", "model": "..." } }
 ```
 
-网页版：点击右上角「设置」，填入 Base URL / API Key / 模型名即可。
+网页版：点击左下角「设置」，填入 Base URL / API Key / 模型名即可；也可直接在顶栏模型选择器中切换云端 / 本地模型。
 
 云端模式也支持 function calling 工具调用，与本地 Ollama 体验一致。
+
+### 网页版特色（v0.6.0）
+
+- **多会话管理**：左侧会话列表，支持新建、切换、删除，类似 DeepSeek 聊天界面
+- **历史持久化**：对话自动保存到 `data/conversations/`，刷新页面不丢失，可继续聊天
+- **Markdown 渲染 + 代码高亮**：AI 回复中的表格、代码块、列表自动美化（内置解析器，无需联网）
+- **模型选择器**：顶栏一键切换云端模型 / 本地 Ollama 模型
 
 ## 思考→确认→执行 模式
 

@@ -1,16 +1,16 @@
 {
   "app": {
     "name": "智能桌面助手",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "data_dir": "data"
   },
   "models": {
     "download_dir": "data/models",
     "huggingface_mirror": "https://hf-mirror.com"
   },
-    "ai": {
-        "provider": "auto",
-        "ollama_host": "http://127.0.0.1:11434",
+  "ai": {
+    "provider": "auto",
+    "ollama_host": "http://127.0.0.1:11434",
     "cloud": {
       "base_url": "",
       "api_key": "",

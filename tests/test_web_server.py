@@ -32,6 +32,9 @@ class FakeAIEngine:
 
         return _gen()
 
+    def list_available_models(self):
+        return [{"name": "test-model", "size": "1.0 GB", "params": "?", "quant": "?", "provider": "ollama"}]
+
 
 class FakeProvider:
     name = "ollama"
@@ -52,7 +55,10 @@ def client(monkeypatch, tmp_path):
         json.dumps({"ai": {"provider": "auto", "confirm_tools": True, "cloud": {}}}),
         encoding="utf-8",
     )
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
     monkeypatch.setattr(web_server, "CONFIG_PATH", cfg_dir)
+    monkeypatch.setattr(web_server, "DATA_PATH", data_dir)
     app = web_server.create_app()
     app.testing = True
     return app.test_client()
@@ -159,3 +165,77 @@ def test_config_save_clear(client):
 
     resp = client.post("/api/config", json={"base_url": "", "api_key": "", "model": ""})
     assert resp.status_code == 200
+
+
+def test_models_endpoint(client):
+    """模型列表接口返回可选项"""
+    resp = client.get("/api/models")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert "models" in data
+    assert "current" in data
+    assert "provider" in data
+
+
+def test_conversations_crud(client):
+    """会话列表 / 新建 / 消息 / 删除"""
+    resp = client.get("/api/conversations")
+    assert resp.status_code == 200
+    assert resp.get_json()["conversations"] == []
+
+    resp = client.post("/api/conversations")
+    assert resp.status_code == 200
+    cid = resp.get_json()["conversation"]["id"]
+    assert cid
+
+    resp = client.get("/api/conversations")
+    assert [c["id"] for c in resp.get_json()["conversations"]] == [cid]
+
+    resp = client.get(f"/api/conversations/{cid}/messages")
+    assert resp.status_code == 200
+    assert resp.get_json()["messages"] == []
+
+    resp = client.delete(f"/api/conversations/{cid}")
+    assert resp.status_code == 200
+    resp = client.get("/api/conversations")
+    assert resp.get_json()["conversations"] == []
+
+
+def test_conversation_404(client):
+    resp = client.get("/api/conversations/nonexistent/messages")
+    assert resp.status_code == 404
+    resp = client.delete("/api/conversations/nonexistent")
+    assert resp.status_code == 404
+
+
+def test_chat_persists_messages(client):
+    """对话完成后，消息持久化到会话文件"""
+    from src import web_server
+
+    # 先创建会话
+    resp = client.post("/api/conversations")
+    cid = resp.get_json()["conversation"]["id"]
+
+    resp = client.post("/api/chat", json={"message": "帮我查系统信息", "conversation_id": cid})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["conversation_id"] == cid
+    sid = data["session_id"]
+
+    sess = web_server._SESSIONS[sid]
+    # 读取事件直至 done（自动确认）
+    while True:
+        ev = sess.queue.get(timeout=5)
+        if ev["type"] == "confirm":
+            sess.confirm(True)
+        if ev["type"] == "done":
+            break
+
+    conv = web_server.load_conversation(cid)
+    assert conv is not None
+    roles = [m["role"] for m in conv["messages"]]
+    assert "user" in roles
+    assert "assistant" in roles
+    assert conv["title"] == "帮我查系统信息"
