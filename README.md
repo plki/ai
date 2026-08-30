@@ -7,6 +7,7 @@
 - **AI 对话（双引擎）** — 本地 Ollama + 任意 OpenAI 兼容云端 API（DeepSeek / 通义 / Moonshot / OpenAI 等）
 - **思考→确认→执行** — AI 提出计划后先展示，你确认才真正执行工具，安全可控
 - **双界面** — 命令行（rich 美化）与网页版（浏览器访问，SSE 流式输出）
+- **云端在线版** — 可免费部署到 Cloudflare（网页版聊天 + SSE 流式），别人无需安装即可用
 - **模型管理** — 搜索、下载和部署本地 GGUF 模型，一键拉取 Ollama 模型
 - **文件管理** — 智能文件整理、搜索、批量操作
 - **任务自动化** — 内置系统/磁盘/进程任务，支持自定义命令任务
@@ -91,6 +92,10 @@ config api https://api.deepseek.com/v1 sk-你的key deepseek-chat
 │   ├── ui.py              # rich 终端美化
 │   └── utils.py           # 公共工具（路径/格式化/JSON/日志）
 ├── config/                # 配置文件
+├── cloudflare/            # 云端在线版（免费部署到 Cloudflare Pages）
+│   ├── public/            # 静态前端（浏览器加载）
+│   ├── functions/api/     # Pages Functions（API 中转 / SSE 流式）
+│   └── wrangler.toml      # Cloudflare 部署配置
 └── tests/                 # pytest 单测
 ```
 
