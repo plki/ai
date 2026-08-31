@@ -18,8 +18,10 @@ import time
 import traceback
 import uuid
 
+import requests
 from flask import Flask, Response, jsonify, render_template_string, request
 
+from .relay import RelayError, RelayManager
 from .utils import CONFIG_PATH, DATA_PATH, load_json, save_json
 
 logger = logging.getLogger("web")
@@ -151,6 +153,36 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 .field .hint { font-size: 12px; color: var(--text-sub); margin-top: 4px; line-height: 1.5; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
+/* ===== API 中转面板 ===== */
+.relay-box { width: 640px; }
+.relay-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.relay-tab { background: none; border: none; color: var(--text-sub); padding: 8px 14px; font-size: 13px;
+             cursor: pointer; border-bottom: 2px solid transparent; }
+.relay-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+.relay-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.relay-toolbar input { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+                       padding: 7px 10px; border-radius: 8px; font-size: 13px; outline: none; }
+.relay-hint-text { color: var(--text-sub); font-size: 12px; }
+.relay-status { margin: 10px 0; font-size: 13px; color: var(--text-sub); }
+.relay-quota-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.relay-key-result { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+                    font-size: 13px; word-break: break-all; margin: 12px 0; line-height: 1.6; }
+.relay-key-result .key-red { color: #f04142; font-weight: 600; }
+.relay-key-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px;
+                  background: var(--msg-bg); }
+.relay-key-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.relay-key-head .nm { font-weight: 600; font-size: 14px; flex: 1; }
+.relay-key-head .st { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
+.relay-key-head .st.on { background: #e6f7e6; color: #18a058; }
+.relay-key-head .st.off { background: #ffecec; color: #f04142; }
+.relay-key-meta { font-size: 12px; color: var(--text-sub); margin-bottom: 8px; word-break: break-all; }
+.relay-key-usage { font-size: 12px; color: var(--text-sub); margin-bottom: 8px; }
+.relay-key-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.relay-log-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+.relay-log-table th, .relay-log-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.relay-log-table th { color: var(--text-sub); font-weight: 500; }
+.relay-empty { color: var(--text-sub); font-size: 13px; padding: 20px 0; text-align: center; }
+
 #sidebarMask { display: none; }
 
 @media (max-width: 768px) {
@@ -210,6 +242,7 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
     <div id="title">新对话</div>
     <span id="modelTag"></span>
     <select id="modelSelect" title="切换模型" onchange="onModelChange()"></select>
+    <button class="btn" id="relayTopBtn" onclick="openRelay()">&#8644; API 中转</button>
     <button class="btn" id="settingsTopBtn" onclick="openSettings()">&#9881; 设置</button>
   </div>
   <div id="chat"></div>
@@ -258,6 +291,88 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
     <div class="modal-actions">
       <button class="btn" onclick="closeSettings()">关闭</button>
       <button class="btn primary" onclick="saveSettings()">保存配置</button>
+    </div>
+  </div>
+</div>
+
+<!-- API 中转弹窗 -->
+<div class="modal" id="relayModal">
+  <div class="modal-box relay-box">
+    <h3>API 中转站</h3>
+    <div class="relay-tabs">
+      <button class="relay-tab active" data-tab="relayTabUpstream" onclick="switchRelayTab('relayTabUpstream', this)">上游配置</button>
+      <button class="relay-tab" data-tab="relayTabKeys" onclick="switchRelayTab('relayTabKeys', this)">子 API</button>
+      <button class="relay-tab" data-tab="relayTabLogs" onclick="switchRelayTab('relayTabLogs', this)">调用日志</button>
+    </div>
+
+    <div class="relay-panel" id="relayTabUpstream">
+      <div class="field">
+        <label>上游 Base URL</label>
+        <input id="relayBaseUrl" placeholder="如 https://api.deepseek.com/v1">
+        <div class="hint">统一主 API 的 OpenAI 兼容地址，所有子 API 请求都会转发到这里</div>
+      </div>
+      <div class="field">
+        <label>主 API Key</label>
+        <input id="relayApiKey" type="password" placeholder="sk-..." autocomplete="off">
+      </div>
+      <div class="field">
+        <label>默认模型名</label>
+        <input id="relayModel" placeholder="如 deepseek-chat">
+      </div>
+      <div class="field">
+        <label>超时时间（秒）</label>
+        <input id="relayTimeout" type="number" value="60" min="1">
+      </div>
+      <div class="relay-status" id="relayUpStatus"></div>
+      <div class="modal-actions">
+        <button class="btn primary" onclick="saveRelayUpstream()">保存上游配置</button>
+      </div>
+    </div>
+
+    <div class="relay-panel" id="relayTabKeys" style="display:none">
+      <div class="relay-toolbar">
+        <button class="btn primary" onclick="openRelayKeyModal()">+ 新建子 API</button>
+        <span class="relay-hint-text">外部调用：POST /v1/chat/completions，Header: Authorization: Bearer &lt;子Key&gt;</span>
+      </div>
+      <div id="relayKeyList"></div>
+    </div>
+
+    <div class="relay-panel" id="relayTabLogs" style="display:none">
+      <div class="relay-toolbar">
+        <input id="relayLogFilter" placeholder="按子 API 名称筛选" oninput="loadRelayLogs()">
+        <button class="btn" onclick="loadRelayLogs()">刷新</button>
+      </div>
+      <div id="relayLogList"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="closeRelay()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新建/编辑子 API 弹窗 -->
+<div class="modal" id="relayKeyModal">
+  <div class="modal-box">
+    <h3 id="relayKeyModalTitle">新建子 API</h3>
+    <div class="field">
+      <label>名称</label>
+      <input id="relayKeyName" placeholder="如 客厅客户端 / 手机 APP">
+    </div>
+    <div class="field">
+      <label>可用模型（留空 = 不限制）</label>
+      <input id="relayKeyModels" placeholder="多个模型用逗号分隔，如 deepseek-chat,qwen-max">
+    </div>
+    <div class="relay-quota-grid">
+      <div class="field"><label>调用次数上限</label><input id="relayKeyMaxCalls" type="number" min="0" value="0" placeholder="0=不限"></div>
+      <div class="field"><label>Token 总量上限</label><input id="relayKeyMaxTokens" type="number" min="0" value="0" placeholder="0=不限"></div>
+      <div class="field"><label>并发上限</label><input id="relayKeyMaxConcurrent" type="number" min="0" value="0" placeholder="0=不限"></div>
+      <div class="field"><label>每日调用上限</label><input id="relayKeyDailyLimit" type="number" min="0" value="0" placeholder="0=不限"></div>
+    </div>
+    <div class="relay-key-result" id="relayKeyResult" style="display:none"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeRelayKeyModal()">关闭</button>
+      <button class="btn primary" id="relayKeySaveBtn" onclick="saveRelayKey()">创建</button>
     </div>
   </div>
 </div>
@@ -748,6 +863,199 @@ async function saveSettings() {
 
 loadConversations();
 refreshModels();
+
+/* ================= API 中转站 ================= */
+let relayEditingId = null;
+
+function openRelay() {
+  document.getElementById('relayModal').classList.add('open');
+  switchRelayTab('relayTabUpstream', document.querySelector('.relay-tab.active') || null);
+  loadRelayUpstream();
+  loadRelayKeys();
+  loadRelayLogs();
+}
+function closeRelay() { document.getElementById('relayModal').classList.remove('open'); }
+function switchRelayTab(tabId, btn) {
+  document.querySelectorAll('.relay-tab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.querySelectorAll('.relay-panel').forEach(p => { p.style.display = 'none'; });
+  document.getElementById(tabId).style.display = 'block';
+  if (tabId === 'relayTabKeys') loadRelayKeys();
+  if (tabId === 'relayTabLogs') loadRelayLogs();
+}
+
+/* ---- 上游配置 ---- */
+async function loadRelayUpstream() {
+  try {
+    const r = await fetch('/api/relay/upstream');
+    const d = await r.json();
+    const up = d.upstream || {};
+    document.getElementById('relayBaseUrl').value = up.base_url || '';
+    document.getElementById('relayModel').value = up.model || '';
+    document.getElementById('relayTimeout').value = up.timeout || 60;
+    const st = document.getElementById('relayUpStatus');
+    st.textContent = d.ready ? '上游已就绪（主 API Key 已配置）' : (up.base_url ? '上游未就绪：API Key 未配置' : '上游未配置，请填写 Base URL 与主 API Key');
+  } catch (e) {}
+}
+async function saveRelayUpstream() {
+  const body = {
+    base_url: document.getElementById('relayBaseUrl').value.trim(),
+    api_key: document.getElementById('relayApiKey').value.trim(),
+    model: document.getElementById('relayModel').value.trim(),
+    timeout: document.getElementById('relayTimeout').value || 60
+  };
+  try {
+    const r = await fetch('/api/relay/upstream', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    document.getElementById('relayApiKey').value = '';
+    document.getElementById('relayUpStatus').textContent = d.ready ? '保存成功，上游已就绪' : '已保存（上游信息不完整）';
+    alert(d.ok ? '上游配置已保存' : '保存失败');
+  } catch (e) { alert('保存失败: ' + e); }
+}
+
+/* ---- 子 API ---- */
+async function loadRelayKeys() {
+  const list = document.getElementById('relayKeyList');
+  try {
+    const r = await fetch('/api/relay/keys');
+    const d = await r.json();
+    const keys = d.keys || [];
+    if (!keys.length) {
+      list.innerHTML = '<div class="relay-empty">暂无子 API，点击上方「新建子 API」创建</div>';
+      return;
+    }
+    list.innerHTML = keys.map(k => {
+      const q = k.quota || {};
+      const u = k.usage || {};
+      const shownModels = (k.models || []).length ? k.models.join(', ') : '不限制';
+      const stCls = k.status === 'enabled' ? 'on' : 'off';
+      const stText = k.status === 'enabled' ? '启用' : '停用';
+      return '<div class="relay-key-card">' +
+        '<div class="relay-key-head"><span class="nm">' + escapeHtml(k.name) + '</span>' +
+        '<span class="st ' + stCls + '">' + stText + '</span></div>' +
+        '<div class="relay-key-meta">子 Key：<b>' + escapeHtml(k.key) + '</b><br>可用模型：' + escapeHtml(shownModels) + '</div>' +
+        '<div class="relay-key-usage">用量：' + (u.calls || 0) + '/' + (q.max_calls || '∞') + ' 次 · Tokens ' + (u.tokens || 0) + '/' + (q.max_tokens || '∞') +
+        ' · 今日 ' + (u.daily_calls || 0) + '/' + (q.daily_limit || '∞') + ' · 并发 ' + (q.max_concurrent || '∞') + '</div>' +
+        '<div class="relay-key-actions">' +
+        '<button class="btn" onclick="editRelayKey(\'' + k.id + '\')">编辑</button>' +
+        (k.status === 'enabled' ? '<button class="btn" onclick="toggleRelayKey(\'' + k.id + '\',\'disabled\')">停用</button>'
+                                : '<button class="btn primary" onclick="toggleRelayKey(\'' + k.id + '\',\'enabled\')">启用</button>') +
+        '<button class="btn" onclick="resetRelayKey(\'' + k.id + '\')">重置用量</button>' +
+        '<button class="btn" onclick="deleteRelayKey(\'' + k.id + '\')">删除</button>' +
+        '</div></div>';
+    }).join('');
+  } catch (e) { list.innerHTML = '<div class="relay-empty">加载失败: ' + escapeHtml(String(e)) + '</div>'; }
+}
+function openRelayKeyModal() {
+  relayEditingId = null;
+  document.getElementById('relayKeyModalTitle').textContent = '新建子 API';
+  document.getElementById('relayKeySaveBtn').textContent = '创建';
+  document.getElementById('relayKeyName').value = '';
+  document.getElementById('relayKeyModels').value = '';
+  document.getElementById('relayKeyMaxCalls').value = 0;
+  document.getElementById('relayKeyMaxTokens').value = 0;
+  document.getElementById('relayKeyMaxConcurrent').value = 0;
+  document.getElementById('relayKeyDailyLimit').value = 0;
+  document.getElementById('relayKeyResult').style.display = 'none';
+  document.getElementById('relayKeyModal').classList.add('open');
+}
+function closeRelayKeyModal() { document.getElementById('relayKeyModal').classList.remove('open'); }
+async function editRelayKey(id) {
+  relayEditingId = id;
+  try {
+    const r = await fetch('/api/relay/keys');
+    const d = await r.json();
+    const k = (d.keys || []).filter(x => x.id === id)[0];
+    if (!k) return;
+    document.getElementById('relayKeyModalTitle').textContent = '编辑子 API：' + k.name;
+    document.getElementById('relayKeySaveBtn').textContent = '保存';
+    document.getElementById('relayKeyName').value = k.name;
+    document.getElementById('relayKeyModels').value = (k.models || []).join(',');
+    const q = k.quota || {};
+    document.getElementById('relayKeyMaxCalls').value = q.max_calls || 0;
+    document.getElementById('relayKeyMaxTokens').value = q.max_tokens || 0;
+    document.getElementById('relayKeyMaxConcurrent').value = q.max_concurrent || 0;
+    document.getElementById('relayKeyDailyLimit').value = q.daily_limit || 0;
+    document.getElementById('relayKeyResult').style.display = 'none';
+    document.getElementById('relayKeyModal').classList.add('open');
+  } catch (e) {}
+}
+async function saveRelayKey() {
+  const models = document.getElementById('relayKeyModels').value.split(',').map(s => s.trim()).filter(Boolean);
+  const quota = {
+    max_calls: document.getElementById('relayKeyMaxCalls').value || 0,
+    max_tokens: document.getElementById('relayKeyMaxTokens').value || 0,
+    max_concurrent: document.getElementById('relayKeyMaxConcurrent').value || 0,
+    daily_limit: document.getElementById('relayKeyDailyLimit').value || 0
+  };
+  const body = { name: document.getElementById('relayKeyName').value.trim(), models: models, quota: quota };
+  try {
+    let d;
+    if (relayEditingId) {
+      const r = await fetch('/api/relay/keys/' + relayEditingId, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+      d = await r.json();
+    } else {
+      const r = await fetch('/api/relay/keys', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+      d = await r.json();
+    }
+    if (!d.ok) { alert(d.error || '保存失败'); return; }
+    if (!relayEditingId && d.key && d.key.key) {
+      const res = document.getElementById('relayKeyResult');
+      res.style.display = 'block';
+      res.innerHTML = '子 API 创建成功！<br>请复制并妥善保存子 Key：<br><span class="key-red">' + escapeHtml(d.key.key) + '</span><br>' +
+        '<span style="font-size:12px">此 Key 可在列表中随时查看，保管好即可。</span>';
+      openRelayKeyModal();
+      closeRelayKeyModal();
+      loadRelayKeys();
+    } else {
+      closeRelayKeyModal();
+      loadRelayKeys();
+    }
+  } catch (e) { alert('保存失败: ' + e); }
+}
+async function toggleRelayKey(id, status) {
+  try {
+    await fetch('/api/relay/keys/' + id, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({status: status}) });
+    loadRelayKeys();
+  } catch (e) {}
+}
+async function resetRelayKey(id) {
+  if (!confirm('确认重置该子 API 的用量计数？')) return;
+  try {
+    await fetch('/api/relay/keys/' + id + '/reset', { method: 'POST' });
+    loadRelayKeys();
+  } catch (e) {}
+}
+async function deleteRelayKey(id) {
+  if (!confirm('确认删除该子 API？删除后该子 Key 立即失效。')) return;
+  try {
+    await fetch('/api/relay/keys/' + id, { method: 'DELETE' });
+    loadRelayKeys();
+  } catch (e) {}
+}
+
+/* ---- 调用日志 ---- */
+async function loadRelayLogs() {
+  const list = document.getElementById('relayLogList');
+  const filter = document.getElementById('relayLogFilter').value.trim();
+  try {
+    const r = await fetch('/api/relay/logs?name=' + encodeURIComponent(filter) + '&limit=100');
+    const d = await r.json();
+    const logs = d.logs || [];
+    if (!logs.length) {
+      list.innerHTML = '<div class="relay-empty">暂无调用日志</div>';
+      return;
+    }
+    const rows = logs.map(l => {
+      const t = new Date((l.ts || 0) * 1000);
+      const tm = t.toLocaleString();
+      return '<tr><td>' + escapeHtml(tm) + '</td><td>' + escapeHtml(l.key_name || '') + '</td>' +
+        '<td>' + escapeHtml(l.model || '') + '</td><td>' + (l.status_code || 0) + '</td>' +
+        '<td>' + (l.tokens || 0) + '</td><td>' + (l.duration_ms || 0) + 'ms</td></tr>';
+    }).join('');
+    list.innerHTML = '<table class="relay-log-table"><thead><tr><th>时间</th><th>子 API</th><th>模型</th><th>状态</th><th>Tokens</th><th>耗时</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  } catch (e) { list.innerHTML = '<div class="relay-empty">加载失败</div>'; }
+}
 </script>
 </body>
 </html>
@@ -902,8 +1210,12 @@ def delete_conversation(cid: str) -> bool:
 _SESSIONS = {}
 
 
-def create_app() -> Flask:
+def create_app(relay_manager: RelayManager = None) -> Flask:
     app = Flask(__name__)
+    mgr = relay_manager or RelayManager()
+
+    def _relay_error(message: str, status: int, error_type: str = "relay_error"):
+        return jsonify({"error": {"message": message, "type": error_type, "status": status}}), status
 
     def _access_token() -> str:
         cfg = load_json(CONFIG_PATH / "config.json", {})
@@ -926,6 +1238,174 @@ def create_app() -> Flask:
     @app.route("/")
     def index():
         return render_template_string(PAGE_TEMPLATE)
+
+    # ================= 中转站：公开端点 =================
+    @app.route("/v1/chat/completions", methods=["POST"])
+    def v1_chat_completions():
+        """OpenAI 兼容端点：Bearer 子 Key 鉴权，转发到统一上游"""
+        auth = request.headers.get("Authorization", "") or ""
+        token = auth[7:].strip() if auth.lower().startswith("bearer") else ""
+        key = mgr.get_key_by_token(token) if token else None
+        if key is None:
+            mgr.log("无效Key", (token or "无Token")[:16], (request.get_json(silent=True) or {}).get("model", ""),
+                    401, 0, 0)
+            return _relay_error("无效的子 API Key", 401, "invalid_key")
+        if not mgr.upstream_ready:
+            return _relay_error("上游未配置", 503, "upstream_not_configured")
+
+        data = request.get_json(silent=True) or {}
+        model = (data.get("model") or "").strip()
+        if not model:
+            return _relay_error("缺少 model 字段", 400, "missing_model")
+        allowed = key.get("models") or []
+        if allowed and model not in allowed:
+            return _relay_error(f"model 不在白名单: {model}", 400, "model_not_allowed")
+
+        try:
+            mgr.check_quota(key)
+        except RelayError as e:
+            return _relay_error(str(e), e.status, e.error_type)
+
+        up = mgr.get_upstream_credentials()
+        url = up["base_url"].rstrip("/") + "/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {up['api_key']}",
+            "Content-Type": "application/json",
+        }
+        body = dict(data)
+        if body.get("stream"):
+            return _v1_stream(up, url, headers, body, key, mgr)
+        return _v1_sync(up, url, headers, body, key, mgr)
+
+    def _v1_sync(up, url, headers, body, key, mgr):
+        start = time.time()
+        try:
+            resp = requests.post(url, headers=headers, json=body, timeout=up["timeout"])
+            duration = int((time.time() - start) * 1000)
+            if resp.status_code >= 400:
+                payload = _upstream_error(resp)
+                mgr.log(key.get("name", ""), key.get("key_prefix", ""), body.get("model", ""),
+                        resp.status_code, 0, duration)
+                return jsonify(payload), resp.status_code
+            try:
+                payload = resp.json()
+            except ValueError:
+                mgr.release(key)
+                return _relay_error("上游返回非 JSON 响应", 502, "upstream_bad_response")
+            tokens = (payload.get("usage") or {}).get("total_tokens", 0) or 0
+            mgr.record_usage(key, tokens)
+            mgr.log(key.get("name", ""), key.get("key_prefix", ""), body.get("model", ""),
+                    200, tokens, duration)
+            mgr.release(key)
+            return jsonify(payload)
+        except requests.exceptions.Timeout:
+            mgr.release(key)
+            return _relay_error("上游响应超时", 504, "upstream_timeout")
+        except requests.exceptions.ConnectionError:
+            mgr.release(key)
+            return _relay_error("无法连接上游（检查 base_url 与网络）", 502, "upstream_connection_error")
+        except Exception as e:
+            mgr.release(key)
+            logger.exception("中转转发失败")
+            return _relay_error(f"中转转发失败: {e}", 502, "upstream_error")
+        finally:
+            pass
+
+    def _v1_stream(up, url, headers, body, key, mgr):
+        start = time.time()
+
+        def generate():
+            upstream = None
+            try:
+                upstream = requests.post(url, headers=headers, json=body, stream=True, timeout=up["timeout"])
+                duration = int((time.time() - start) * 1000)
+                if upstream.status_code >= 400:
+                    payload = _upstream_error(upstream)
+                    mgr.log(key.get("name", ""), key.get("key_prefix", ""), body.get("model", ""),
+                            upstream.status_code, 0, duration)
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    return
+                for chunk in upstream.iter_content(chunk_size=4096):
+                    if chunk:
+                        yield chunk
+                tokens = 0
+                mgr.record_usage(key, tokens)
+                mgr.log(key.get("name", ""), key.get("key_prefix", ""), body.get("model", ""),
+                        200, tokens, int((time.time() - start) * 1000))
+            except requests.exceptions.Timeout:
+                mgr.log(key.get("name", ""), key.get("key_prefix", ""), body.get("model", ""),
+                        504, 0, int((time.time() - start) * 1000))
+                yield f"data: {json.dumps({'error': {'message': '上游响应超时', 'type': 'upstream_timeout', 'status': 504}}, ensure_ascii=False)}\n\n"
+            except requests.exceptions.ConnectionError:
+                mgr.log(key.get("name", ""), key.get("key_prefix", ""), body.get("model", ""),
+                        502, 0, int((time.time() - start) * 1000))
+                yield f"data: {json.dumps({'error': {'message': '无法连接上游', 'type': 'upstream_connection_error', 'status': 502}}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                logger.exception("中转流式转发失败")
+                yield f"data: {json.dumps({'error': {'message': str(e), 'type': 'upstream_error', 'status': 502}}, ensure_ascii=False)}\n\n"
+            finally:
+                if upstream is not None:
+                    upstream.close()
+                mgr.release(key)
+
+        return Response(
+            generate(),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    def _upstream_error(resp):
+        try:
+            payload = resp.json()
+            msg = (payload.get("error") or {}).get("message") or payload.get("message") or "上游请求失败"
+        except ValueError:
+            msg = (resp.text or "")[:300] or "上游请求失败"
+        return {"error": {"message": msg, "type": "upstream_error", "status": resp.status_code}}
+
+    # ================= 中转站：管理端点 =================
+    @app.route("/api/relay/upstream", methods=["GET", "POST"])
+    def api_relay_upstream():
+        if request.method == "GET":
+            return jsonify({"ok": True, "upstream": mgr.get_upstream(), "ready": mgr.upstream_ready})
+        data = request.get_json(silent=True) or {}
+        up = mgr.set_upstream(
+            base_url=data.get("base_url", ""),
+            api_key=data.get("api_key", ""),
+            model=data.get("model", ""),
+            timeout=data.get("timeout"),
+        )
+        return jsonify({"ok": True, "upstream": up, "ready": mgr.upstream_ready})
+
+    @app.route("/api/relay/keys", methods=["GET", "POST"])
+    def api_relay_keys():
+        if request.method == "GET":
+            return jsonify({"ok": True, "keys": mgr.list_keys()})
+        data = request.get_json(silent=True) or {}
+        key = mgr.create_key(name=data.get("name", ""), models=data.get("models"), quota=data.get("quota"))
+        return jsonify({"ok": True, "key": key}), 201
+
+    @app.route("/api/relay/keys/<kid>", methods=["PUT", "DELETE"])
+    def api_relay_key(kid):
+        if request.method == "DELETE":
+            if not mgr.delete_key(kid):
+                return _relay_error("子 API 不存在", 404, "not_found")
+            return jsonify({"ok": True})
+        data = request.get_json(silent=True) or {}
+        key = mgr.update_key(kid, name=data.get("name"), models=data.get("models"),
+                             quota=data.get("quota"), status=data.get("status"))
+        return jsonify({"ok": True, "key": key})
+
+    @app.route("/api/relay/keys/<kid>/reset", methods=["POST"])
+    def api_relay_key_reset(kid):
+        key = mgr.reset_usage(kid)
+        return jsonify({"ok": True, "key": key})
+
+    @app.route("/api/relay/logs")
+    def api_relay_logs():
+        name = (request.args.get("name") or "").strip()
+        limit = request.args.get("limit") or 100
+        logs = mgr.get_logs(name=name, limit=limit)
+        return jsonify({"ok": True, "logs": logs})
 
     @app.route("/api/status")
     def api_status():
