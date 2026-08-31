@@ -246,6 +246,46 @@ def test_stop_unknown_session(client):
     assert resp.status_code == 404
 
 
+def test_access_token_gate(monkeypatch, tmp_path):
+    """配置 web.access_token 后，/api/* 需携带 X-Auth-Token"""
+    import src.ai_engine as ai_mod
+    from src import web_server
+    monkeypatch.setattr(ai_mod, "AIEngine", FakeAIEngine)
+
+    cfg_dir = tmp_path / "cfg2"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.json").write_text(
+        json.dumps({"web": {"access_token": "secret123"}}),
+        encoding="utf-8",
+    )
+    data_dir = tmp_path / "data2"
+    data_dir.mkdir()
+    monkeypatch.setattr(web_server, "CONFIG_PATH", cfg_dir)
+    monkeypatch.setattr(web_server, "DATA_PATH", data_dir)
+    app = web_server.create_app()
+    app.testing = True
+    c = app.test_client()
+
+    # 无口令 → 401
+    resp = c.get("/api/status")
+    assert resp.status_code == 401
+    # 页面本身不受限
+    resp = c.get("/")
+    assert resp.status_code == 200
+    # 口令错误 → 401
+    resp = c.get("/api/status", headers={"X-Auth-Token": "wrong"})
+    assert resp.status_code == 401
+    # 口令正确 → 200
+    resp = c.get("/api/status", headers={"X-Auth-Token": "secret123"})
+    assert resp.status_code == 200
+
+
+def test_access_token_off_by_default(client):
+    """默认不配置口令时，所有接口行为不变"""
+    resp = client.get("/api/status")
+    assert resp.status_code == 200
+
+
 def test_stop_endpoint_while_running(client):
     """生成中调用 /api/stop 后会话正常结束，不再输出新内容"""
     from src import web_server

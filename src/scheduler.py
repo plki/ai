@@ -133,7 +133,7 @@ class Scheduler:
                 return not last_dt or (now - last_dt).total_seconds() >= hours * 3600
             if cron.endswith("d"):
                 days = int(cron[:-1])
-                return not last_dt or (now - last_dt).days >= days
+                return not last_dt or (now - last_dt).total_seconds() >= days * 86400
         except ValueError:
             return False
         return False

@@ -121,9 +121,17 @@ class FileManager:
                     if ext in exts:
                         dest_dir = target / category
                         dest_dir.mkdir(exist_ok=True)
+                        dest_path = dest_dir / item.name
+                        # 同名冲突：自动添加序号后缀，避免覆盖已有文件
+                        if dest_path.exists():
+                            stem, suffix = item.stem, item.suffix
+                            n = 1
+                            while (dest_dir / f"{stem}_{n}{suffix}").exists():
+                                n += 1
+                            dest_path = dest_dir / f"{stem}_{n}{suffix}"
                         try:
                             import shutil
-                            shutil.move(str(item), str(dest_dir / item.name))
+                            shutil.move(str(item), str(dest_path))
                         except OSError as e:
                             print(f"  {Fore.RED}移动失败: {item.name} ({e}){Style.RESET_ALL}")
                             break

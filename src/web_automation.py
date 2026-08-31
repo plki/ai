@@ -4,7 +4,8 @@ Web 自动化模块 - 网页抓取、应用部署
 import os
 import re
 import subprocess
-from urllib.parse import urlparse
+import sys
+from urllib.parse import quote, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -36,21 +37,31 @@ class WebAutomation:
             resp = requests.get(url, headers=headers, timeout=15, stream=True)
             resp.raise_for_status()
 
-            # 流式读取并限制大小
-            chunks = []
+            # 流式读取原始字节并限制大小，避免全量载入内存
+            raw = bytearray()
             size = 0
-            for chunk in resp.iter_content(chunk_size=64 * 1024, decode_unicode=True):
+            for chunk in resp.iter_content(chunk_size=64 * 1024):
                 if not chunk:
                     continue
                 size += len(chunk)
                 if size > MAX_TEXT_SIZE:
                     logger.warning("网页内容超过 %d 字节，已截断", MAX_TEXT_SIZE)
                     break
-                chunks.append(chunk)
+                raw.extend(chunk)
             resp.close()
 
-            text = "".join(chunks)
-            resp.encoding = resp.apparent_encoding or 'utf-8'
+            # 编码确定：优先响应头 charset，缺失时用字节检测兜底
+            from requests.utils import get_encoding_from_headers
+            encoding = get_encoding_from_headers(resp.headers) or 'utf-8'
+            try:
+                text = bytes(raw).decode(encoding)
+            except (LookupError, UnicodeDecodeError):
+                try:
+                    from charset_normalizer import from_bytes
+                    best = from_bytes(bytes(raw)).best()
+                    text = str(best) if best is not None else bytes(raw).decode('utf-8', errors='replace')
+                except Exception:
+                    text = bytes(raw).decode('utf-8', errors='replace')
 
             soup = BeautifulSoup(text, 'html.parser')
 
@@ -108,6 +119,7 @@ class WebAutomation:
                 return None
 
             block_size = 1024 * 1024
+            downloaded = 0
 
             with open(dest, 'wb') as f:
                 with tqdm(
@@ -119,6 +131,16 @@ class WebAutomation:
                 ) as pbar:
                     for chunk in resp.iter_content(chunk_size=block_size):
                         if chunk:
+                            downloaded += len(chunk)
+                            # 服务器未提供 content-length 时的强制上限
+                            if downloaded > MAX_DOWNLOAD_BYTES:
+                                print(f"{Fore.RED}[X] 下载超过上限 {format_size(MAX_DOWNLOAD_BYTES)}，已中断{Style.RESET_ALL}")
+                                resp.close()
+                                try:
+                                    dest.unlink()
+                                except OSError:
+                                    pass
+                                return None
                             f.write(chunk)
                             pbar.update(len(chunk))
 
@@ -207,9 +229,12 @@ class WebAutomation:
         print(f"\n{Fore.CYAN}🐍 正在安装 Python 包...{Style.RESET_ALL}")
         try:
             package_name = url.rstrip('/').split('/')[-1]
+            if not re.fullmatch(r"[A-Za-z0-9_.\-]+", package_name):
+                print(f"{Fore.RED}[X] 无效的包名: {package_name}{Style.RESET_ALL}")
+                return
             result = subprocess.run(
-                f"pip install {package_name} -q",
-                shell=True, capture_output=True, text=True, timeout=120,
+                [sys.executable, "-m", "pip", "install", package_name, "-q"],
+                capture_output=True, text=True, timeout=120,
             )
             if result.returncode == 0:
                 print(f"{Fore.GREEN}[OK] 安装成功: {package_name}{Style.RESET_ALL}")
@@ -258,7 +283,7 @@ class WebAutomation:
         print(f"\n{Fore.CYAN}🔍 搜索: {keyword}{Style.RESET_ALL}")
         print(f"{Fore.WHITE}{'='*60}{Style.RESET_ALL}")
 
-        search_url = f"https://html.duckduckgo.com/html/?q={keyword}"
+        search_url = f"https://html.duckduckgo.com/html/?q={quote(keyword)}"
         try:
             resp = requests.get(search_url, timeout=15)
             resp.raise_for_status()

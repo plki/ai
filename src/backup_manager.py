@@ -142,13 +142,17 @@ class BackupManager:
 
         try:
             with zipfile.ZipFile(zip_path, 'r') as zf:
+                # 防路径穿越：规范化后必须落在目标目录内，仅解压安全成员
+                safe_members = []
                 for member in zf.infolist():
-                    # 防路径穿越：规范化后必须落在目标目录内
                     target = (dest_path / member.filename).resolve()
-                    if not str(target).startswith(str(dest_path)):
+                    try:
+                        target.relative_to(dest_path)
+                    except ValueError:
                         print(f"{Fore.YELLOW}  [跳过] 越界路径: {member.filename}{Style.RESET_ALL}")
                         continue
-                zf.extractall(dest_path)
+                    safe_members.append(member)
+                zf.extractall(dest_path, members=safe_members)
             print(f"{Fore.GREEN}[OK] 恢复完成！{Style.RESET_ALL}")
         except Exception as e:
             logger.exception("恢复失败")

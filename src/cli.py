@@ -380,7 +380,28 @@ def handle_config_command(args):
         print(f"{Fore.GREEN}[OK] 确认模式: {'开' if args[1]=='on' else '关'}{Style.RESET_ALL}")
         return
 
-    print(f"{Fore.RED}未知子命令: {sub} (支持: show, provider, api, confirm){Style.RESET_ALL}")
+    if sub == "web-token":
+        # 网页版访问口令：config web-token <口令> | config web-token off
+        web = cfg.setdefault("web", {})
+        if len(args) < 2:
+            current = web.get("access_token", "")
+            if current:
+                print(f"{Fore.GREEN}[OK] 网页版访问口令已设置 (长度 {len(current)}){Style.RESET_ALL}")
+            else:
+                print(f"{Fore.YELLOW}[!] 未设置访问口令{Style.RESET_ALL}")
+            print(f"{Fore.WHITE}用法: config web-token <口令> 设置  |  config web-token off 关闭{Style.RESET_ALL}")
+            return
+        if args[1].lower() == "off":
+            web.pop("access_token", None)
+            if save_json(CONFIG_JSON, cfg):
+                print(f"{Fore.GREEN}[OK] 网页版访问口令已关闭{Style.RESET_ALL}")
+        else:
+            web["access_token"] = args[1]
+            if save_json(CONFIG_JSON, cfg):
+                print(f"{Fore.GREEN}[OK] 网页版访问口令已设置，重启 web 服务后生效{Style.RESET_ALL}")
+        return
+
+    print(f"{Fore.RED}未知子命令: {sub} (支持: show, provider, api, confirm, web-token){Style.RESET_ALL}")
 
 
 def handle_file_command(args):
@@ -525,7 +546,7 @@ def handle_schedule_command(args):
         elif task_type == "cleanup":
             s.add_task(name, "cleanup", {}, "24h")
         else:
-            print(f"{Fore.RED}不支持的類型{Style.RESET_ALL}")
+            print(f"{Fore.RED}不支持的类型{Style.RESET_ALL}")
     elif sub == "remove":
         if len(args) < 2:
             print(f"{Fore.RED}请指定任务 ID{Style.RESET_ALL}")

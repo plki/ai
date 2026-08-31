@@ -266,6 +266,29 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 let state = { convId: null, es: null, thinkingEl: null, busy: false, model: '' };
 let convs = [];
 
+/* ================= 可选访问口令 ================= */
+const AUTH_KEY = 'ai_desktop_auth_token';
+let authToken = localStorage.getItem(AUTH_KEY) || '';
+const _origFetch = window.fetch.bind(window);
+window.fetch = function (url, opts) {
+  opts = opts || {};
+  const u = String(url);
+  if (u.indexOf('/api/') === 0 && authToken) {
+    opts.headers = Object.assign({}, opts.headers, {'X-Auth-Token': authToken});
+  }
+  return _origFetch(url, opts).then((resp) => {
+    if (resp.status === 401 && u.indexOf('/api/') === 0) {
+      const t = window.prompt('该网页版已启用访问口令，请输入口令（无口令请留空取消）：');
+      if (t) {
+        authToken = t.trim();
+        localStorage.setItem(AUTH_KEY, authToken);
+        window.location.reload();
+      }
+    }
+    return resp;
+  });
+};
+
 /* ================= Markdown 渲染与代码高亮 ================= */
 const KEYWORDS = {
   python: 'def return if elif else for while import from class try except finally with as in not and or None True False pass lambda yield raise global print len range self',
@@ -344,11 +367,14 @@ function renderMarkdown(src) {
   let lines = src.split(/\\r?\\n/);
   let html = '';
   let i = 0;
-  const inline = (s) => s
+  const inline = (s) => escapeHtml(s)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>')
     .replace(/\\*([^*]+)\\*/g, '<em>$1</em>')
-    .replace(/\\[([^\\]]+)\\]\\(([^)\\s]+)\\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    .replace(/\\[([^\\]]+)\\]\\(([^)\\s]+)\\)/g, (m, t, u) => {
+      if (!/^(https?:|mailto:)/i.test(u)) return t;
+      return '<a href="' + u + '" target="_blank" rel="noopener">' + t + '</a>';
+    });
   while (i < lines.length) {
     const line = lines[i];
     if (/^```/.test(line)) {
@@ -879,6 +905,24 @@ _SESSIONS = {}
 def create_app() -> Flask:
     app = Flask(__name__)
 
+    def _access_token() -> str:
+        cfg = load_json(CONFIG_PATH / "config.json", {})
+        return (cfg.get("web", {}) or {}).get("access_token", "") or ""
+
+    @app.before_request
+    def _check_token():
+        """可选访问口令：配置 web.access_token 后，/api/* 需携带 X-Auth-Token"""
+        token = _access_token()
+        if not token:
+            return None
+        path = request.path
+        # SSE 流由 12 位随机会话 ID 保护，不做口令校验
+        if path.startswith("/api/stream"):
+            return None
+        if path.startswith("/api/") and request.headers.get("X-Auth-Token") != token:
+            return jsonify({"ok": False, "error": "访问口令错误"}), 401
+        return None
+
     @app.route("/")
     def index():
         return render_template_string(PAGE_TEMPLATE)
@@ -955,19 +999,16 @@ def create_app() -> Flask:
                 cloud[field] = (data.get(field) or "").strip()
         save_json(CONFIG_PATH / "config.json", cfg)
 
-        # 云端校验
+        # 云端配置完整性校验（不做网络请求，避免阻塞）
         msg = "配置已保存"
         if data.get("provider") == "cloud":
-            from .ai_engine import AIEngine, ProviderError
+            from .ai_engine import AIEngine
             if not cloud.get("base_url") or not cloud.get("api_key") or not cloud.get("model"):
                 msg = "配置已保存（云端信息不完整，请补全）"
             else:
-                try:
-                    engine = AIEngine()
-                    engine.provider.close()
-                    msg = "云端 API 配置已保存并校验通过"
-                except ProviderError as e:
-                    msg = f"配置已保存，但校验未通过: {e}"
+                engine = AIEngine()
+                engine.provider.close()
+                msg = "云端 API 配置已保存，可在对话中使用"
         return jsonify({"ok": True, "message": msg})
 
     @app.route("/api/chat", methods=["POST"])

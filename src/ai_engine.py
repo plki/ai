@@ -664,7 +664,9 @@ class AIEngine:
                 if name in msg_lower:
                     if os.name == "nt":
                         subprocess.Popen(cmd, shell=True)
-                    print(f"\n  [已打开: {name}]")
+                        print(f"\n  [已打开: {name}]")
+                    else:
+                        print(f"\n  [提示] 当前平台暂不支持一键打开 {name}，请在系统菜单中启动")
                     return {"name": "noop", "args": {}}
 
         for kw, (tool, args) in KEYWORD_TOOLS.items():
@@ -747,22 +749,22 @@ class AIEngine:
             if not should_run:
                 yield "\n  [已取消] 好的，本次操作未执行。\n"
                 # 把拒绝结果回填给模型
-                for tc in tool_calls:
+                for i, tc in enumerate(tool_calls):
                     tool_msg = {"role": "tool", "content": "用户拒绝执行此工具调用，未执行。"}
                     if self.provider.name == "cloud":
-                        tool_msg["tool_call_id"] = tc.get("id", "call_0")
+                        tool_msg["tool_call_id"] = tc.get("id", f"call_{i}")
                     working.append(tool_msg)
                 continue
 
             # 执行工具并回填结果
-            for tc in tool_calls:
+            for i, tc in enumerate(tool_calls):
                 name = tc["name"]
                 args = tc.get("args", {}) or {}
                 yield f"\n  [执行: {name}] "
                 result = self._run_tool(name, args)
                 tool_msg = {"role": "tool", "content": result}
                 if self.provider.name == "cloud":
-                    tool_msg["tool_call_id"] = tc.get("id", "call_0")
+                    tool_msg["tool_call_id"] = tc.get("id", f"call_{i}")
                 working.append(tool_msg)
 
     def _describe_plan(self, tool_calls: list) -> str:
