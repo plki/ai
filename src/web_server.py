@@ -930,6 +930,12 @@ async function loadRelayKeys() {
       const shownModels = (k.models || []).length ? k.models.join(', ') : '不限制';
       const stCls = k.status === 'enabled' ? 'on' : 'off';
       const stText = k.status === 'enabled' ? '启用' : '停用';
+      const actEdit = 'onclick="editRelayKey(&quot;' + k.id + '&quot;)"';
+      const actTg = k.status === 'enabled'
+        ? 'onclick="toggleRelayKey(&quot;' + k.id + '&quot;,&quot;disabled&quot;)"'
+        : 'onclick="toggleRelayKey(&quot;' + k.id + '&quot;,&quot;enabled&quot;)"';
+      const actReset = 'onclick="resetRelayKey(&quot;' + k.id + '&quot;)"';
+      const actDel = 'onclick="deleteRelayKey(&quot;' + k.id + '&quot;)"';
       return '<div class="relay-key-card">' +
         '<div class="relay-key-head"><span class="nm">' + escapeHtml(k.name) + '</span>' +
         '<span class="st ' + stCls + '">' + stText + '</span></div>' +
@@ -937,11 +943,10 @@ async function loadRelayKeys() {
         '<div class="relay-key-usage">用量：' + (u.calls || 0) + '/' + (q.max_calls || '∞') + ' 次 · Tokens ' + (u.tokens || 0) + '/' + (q.max_tokens || '∞') +
         ' · 今日 ' + (u.daily_calls || 0) + '/' + (q.daily_limit || '∞') + ' · 并发 ' + (q.max_concurrent || '∞') + '</div>' +
         '<div class="relay-key-actions">' +
-        '<button class="btn" onclick="editRelayKey(\'' + k.id + '\')">编辑</button>' +
-        (k.status === 'enabled' ? '<button class="btn" onclick="toggleRelayKey(\'' + k.id + '\',\'disabled\')">停用</button>'
-                                : '<button class="btn primary" onclick="toggleRelayKey(\'' + k.id + '\',\'enabled\')">启用</button>') +
-        '<button class="btn" onclick="resetRelayKey(\'' + k.id + '\')">重置用量</button>' +
-        '<button class="btn" onclick="deleteRelayKey(\'' + k.id + '\')">删除</button>' +
+        '<button class="btn" ' + actEdit + '>编辑</button>' +
+        '<button class="btn" ' + actTg + '>' + (k.status === 'enabled' ? '停用' : '启用') + '</button>' +
+        '<button class="btn" ' + actReset + '>重置用量</button>' +
+        '<button class="btn" ' + actDel + '>删除</button>' +
         '</div></div>';
     }).join('');
   } catch (e) { list.innerHTML = '<div class="relay-empty">加载失败: ' + escapeHtml(String(e)) + '</div>'; }
