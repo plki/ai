@@ -67,7 +67,7 @@ def client(monkeypatch, tmp_path):
 def test_index_page(client):
     resp = client.get("/")
     assert resp.status_code == 200
-    assert "智能桌面助手" in resp.get_data(as_text=True)
+    assert "AI Desktop Assistant" in resp.get_data(as_text=True)
 
 
 def test_status(client):
