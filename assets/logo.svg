@@ -1,19 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#4d6bfe"/>
-      <stop offset="100%" stop-color="#7c5cff"/>
-    </linearGradient>
-    <linearGradient id="hi" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-  </defs>
-  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#bg)"/>
-  <rect x="8" y="8" width="112" height="56" rx="26" fill="url(#hi)"/>
-  <text x="64" y="82" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif" font-size="62" font-weight="800" fill="#ffffff" letter-spacing="-2">智</text>
-  <circle cx="100" cy="28" r="6" fill="#ffffff" fill-opacity="0.95"/>
-  <circle cx="100" cy="28" r="2.5" fill="#7c5cff"/>
-  <line x1="100" y1="28" x2="86" y2="42" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-opacity="0.7"/>
-  <line x1="100" y1="28" x2="112" y2="44" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-opacity="0.7"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="102" fill="#4d6bfe"/>
+  <text x="256" y="370" font-family="'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif" font-weight="700" font-size="260" fill="white" text-anchor="middle">智</text>
 </svg>

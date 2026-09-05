@@ -1,5 +1,5 @@
 """
-Web 服务器 - 为智能桌面助手提供 DeepSeek 风格浏览器界面
+Web 服务器 - AI Desktop Assistant Web Interface
 
 功能：
 - 左侧多会话列表：新建 / 切换 / 删除会话
@@ -31,7 +31,7 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI 智能桌面助手</title>
+<title>AI Desktop Assistant</title>
 <style>
 :root {
   --bg: #f6f7f9; --sidebar: #fff; --sidebar-hover: #f2f3f5;
@@ -331,7 +331,7 @@ body.sb-open #sidebarMask { display: block; position: fixed; inset: 0; backgroun
   <div class="sidebar-head">
     <div class="sidebar-logo">
       <img src="/assets/logo.png" alt="logo" class="logo-mark-img">
-      <span class="sidebar-title">智能桌面助手</span>
+      <span class="sidebar-title">AI Desktop Assistant</span>
     </div>
     <button id="sidebarCloseBtn2" class="sb-close" onclick="toggleSidebar()" title="收起">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -978,7 +978,7 @@ async function refreshModels() {
     if (state.model) sel.value = state.model;
     const tag = document.getElementById('modelTag');
     tag.textContent = d.provider === 'cloud' ? '云端' : (d.provider === 'ollama' ? '本地 Ollama' : '未配置');
-    document.title = 'AI 智能桌面助手';
+    document.title = 'AI Desktop Assistant';
   } catch (e) {}
 }
 function onModelChange() {
@@ -1901,7 +1901,7 @@ def run_web_server(host: str = None, port: int = None):
     host = host or cfg.get("host", "0.0.0.0")
     port = int(port or cfg.get("port", 7860))
     app = create_app()
-    print(f"  [web] AI 智能桌面助手网页版已启动: http://{host}:{port}")
+    print(f"  [web] AI Desktop Assistant 已启动: http://{host}:{port}")
     print("  [web] 按 Ctrl+C 停止")
     try:
         app.run(host=host, port=port, threaded=True, use_reloader=False)
