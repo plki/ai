@@ -19,7 +19,7 @@ import traceback
 import uuid
 
 import requests
-from flask import Flask, Response, jsonify, render_template_string, request
+from flask import Flask, Response, jsonify, render_template_string, request, send_from_directory
 
 from .relay import RelayError, RelayManager
 from .utils import CONFIG_PATH, DATA_PATH, load_json, save_json
@@ -51,41 +51,87 @@ html, body { height: 100%; }
 body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
        background: var(--bg); color: var(--text); display: flex; overflow: hidden; }
 
+/* ===== 侧边栏 ===== */
 #sidebar { width: 260px; background: var(--sidebar); border-right: 1px solid var(--border);
-           display: flex; flex-direction: column; flex-shrink: 0; transition: margin-left .25s; }
-#sidebar.hidden { margin-left: -260px; }
-.sidebar-head { padding: 14px 12px; display: flex; gap: 8px; border-bottom: 1px solid var(--border); }
-#sidebarCloseBtn { flex-shrink: 0; line-height: 1; font-size: 14px; padding: 6px 9px; }
-#sidebarFoot { padding: 10px 12px; border-top: 1px solid var(--border); }
-#settingsSideBtn { width: 100%; justify-content: center; }
-.btn { background: #f2f3f5; color: var(--text); border: 1px solid var(--border); padding: 7px 12px;
-       border-radius: 8px; cursor: pointer; font-size: 13px; transition: background .15s; white-space: nowrap; }
-.btn:hover { background: #e7e9ee; }
-.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
-.btn.primary:hover { background: var(--primary-dark); }
-.btn.stop { background: #f04142; border-color: #f04142; color: #fff; }
-.btn.stop:hover { background: #d93838; }
-#newChatBtn { flex: 1; }
-#convList { flex: 1; overflow-y: auto; padding: 8px; }
-.conv-item { display: flex; align-items: center; gap: 6px; padding: 10px; margin-bottom: 2px;
-             border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text); }
+           display: flex; flex-direction: column; flex-shrink: 0;
+           position: fixed; left: 0; top: 0; bottom: 0; z-index: 60;
+           box-shadow: 2px 0 12px rgba(0,0,0,.08); padding: 0;
+           transform: translateX(0); transition: transform .28s ease; }
+#sidebar.hidden { transform: translateX(-100%); }
+
+.sidebar-head { display: flex; align-items: center; justify-content: space-between;
+                padding: 14px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.sidebar-logo { display: flex; align-items: center; gap: 8px; }
+.sidebar-logo svg { flex-shrink: 0; }
+.logo-mark-img { width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0; }
+.sidebar-title { font-size: 14px; font-weight: 600; color: var(--text); }
+
+.sb-close { background: transparent; border: none; color: var(--text-sub);
+            cursor: pointer; padding: 6px; border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            transition: background .15s; }
+.sb-close:hover { background: var(--sidebar-hover); color: var(--text); }
+
+.new-chat-btn { display: flex; align-items: center; gap: 8px;
+                margin: 12px 12px 8px 12px; padding: 0 16px; height: 40px;
+                background: #4d6bfe; color: #fff; border: none; border-radius: 10px;
+                font-size: 14px; font-weight: 500; cursor: pointer;
+                box-shadow: 0 1px 2px rgba(77,107,254,.3);
+                transition: background .2s, transform .1s;
+                justify-content: center; flex-shrink: 0; }
+.new-chat-btn svg { flex-shrink: 0; stroke: #fff; }
+.new-chat-btn:hover { background: #3b5bfd; }
+.new-chat-btn:active { transform: scale(.98); }
+
+#convList { flex: 1; overflow-y: auto; padding: 4px 8px; min-height: 0; }
+.conv-item { display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+             margin-bottom: 2px; border-radius: 8px; cursor: pointer;
+             font-size: 13px; color: var(--text); transition: background .15s; }
 .conv-item:hover { background: var(--sidebar-hover); }
 .conv-item.active { background: var(--sidebar-hover); }
 .conv-item .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conv-item .d { flex-shrink: 0; display: none; color: #f04142; background: none; border: none; cursor: pointer; font-size: 14px; }
-.conv-item:hover .d { display: block; }
+.conv-item .d { flex-shrink: 0; color: var(--text-sub); background: none; border: none;
+                cursor: pointer; font-size: 13px; padding: 2px 4px; border-radius: 4px;
+                transition: color .15s, background .15s; display: flex; align-items: center; justify-content: center; }
+.conv-item:hover .d, .conv-item .d:hover { color: #f04142; background: rgba(240,65,66,.12); }
+.conv-item.active .d { color: var(--text-sub); }
 
-#main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.sidebar-foot { padding: 8px 12px; border-top: 1px solid var(--border); flex-shrink: 0; }
+.foot-btn { width: 100%; display: flex; align-items: center; gap: 8px;
+            padding: 9px 12px; background: transparent; border: none;
+            color: var(--text); font-size: 13px; cursor: pointer;
+            border-radius: 8px; transition: background .15s; }
+.foot-btn:hover { background: var(--sidebar-hover); }
+.foot-btn svg { flex-shrink: 0; }
+.btn { background: linear-gradient(135deg, #4d6bfe, #6a8bff); color: #fff; border: none; padding: 7px 12px;
+       border-radius: 8px; cursor: pointer; font-size: 13px; transition: background .15s; white-space: nowrap; }
+.btn:focus { outline: none; }
+.btn:active { filter: brightness(.95); }
+.btn:hover { background: linear-gradient(135deg, #3b5bfd, #5c7bff); }
+.btn.primary { background: linear-gradient(135deg, #4d6bfe, #6a8bff); color: #fff; }
+.btn.primary:hover { background: linear-gradient(135deg, #3b5bfd, #5c7bff); }
+.btn.stop { background: linear-gradient(135deg, #f04142, #ff6b6b); color: #fff; }
+.btn.stop:hover { background: linear-gradient(135deg, #d93838, #f05757); }
+.btn.danger { background: none; border: none; color: #f04142; padding: 2px 6px; font-size: 15px; line-height: 1; }
+.btn.danger:hover { background: #fde8e8; }
+.btn.ghost { background: linear-gradient(135deg, #4d6bfe, #6a8bff); color: #fff; border: none; }
+.btn.ghost:hover { background: linear-gradient(135deg, #3b5bfd, #5c7bff); }
+body.sb-open #newChatTopBtn { display: inline-flex; }
+
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; padding-left: 260px; }
+body.sb-closed #main { padding-left: 0; }
+body.sb-closed #sidebar { transform: translateX(-100%); }
 #topbar { height: 52px; background: var(--sidebar); border-bottom: 1px solid var(--border);
-          display: flex; align-items: center; padding: 0 16px; gap: 10px; flex-shrink: 0; }
+           display: flex; align-items: center; padding: 0 16px; gap: 10px; flex-shrink: 0;
+           position: relative; z-index: 70; }
 #title { font-size: 15px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 #modelTag { color: var(--text-sub); font-size: 12px; white-space: nowrap; }
 #modelSelect { background: var(--sidebar); color: var(--text); border: 1px solid var(--border);
                padding: 6px 10px; border-radius: 8px; font-size: 13px; outline: none; max-width: 220px; min-width: 0; }
 #menuBtn { display: inline-flex; align-items: center; justify-content: center;
-           width: 34px; height: 34px; padding: 0; font-size: 17px; border: 1px solid var(--border);
-           background: var(--bg); color: var(--text); border-radius: 8px; cursor: pointer; flex-shrink: 0; }
-#menuBtn:hover { background: var(--sidebar-hover); }
+           width: 34px; height: 34px; padding: 0; font-size: 17px; border: none;
+           background: linear-gradient(135deg, #4d6bfe, #6a8bff); color: #fff; border-radius: 8px; cursor: pointer; flex-shrink: 0; }
+#menuBtn:hover { background: linear-gradient(135deg, #3b5bfd, #5c7bff); }
 #settingsTopBtn { flex-shrink: 0; }
 
 #chat { flex: 1; overflow-y: auto; padding: 24px; }
@@ -151,6 +197,13 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
                               padding: 9px 11px; border-radius: 8px; font-size: 13px; outline: none; }
 .field input:focus, .field select:focus { border-color: var(--primary); }
 .field .hint { font-size: 12px; color: var(--text-sub); margin-top: 4px; line-height: 1.5; }
+.input-append { position: relative; display: flex; }
+.input-append input { padding-right: 36px; }
+.eye-btn { position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+           background: none; border: none; color: var(--text-sub); cursor: pointer;
+           padding: 4px; display: flex; align-items: center; justify-content: center;
+           border-radius: 4px; }
+.eye-btn:hover { color: var(--text); background: var(--sidebar-hover); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
 /* ===== API 中转面板 ===== */
@@ -183,32 +236,83 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 .relay-log-table th { color: var(--text-sub); font-weight: 500; }
 .relay-empty { color: var(--text-sub); font-size: 13px; padding: 20px 0; text-align: center; }
 
+/* ===== 模型测试面板 ===== */
+.models-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.models-toolbar input { flex: 1; min-width: 120px; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 7px 10px; border-radius: 8px; font-size: 13px; outline: none; }
+.models-list { max-height: 50vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+.models-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.models-row:last-child { border-bottom: none; }
+.models-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.models-row .nm.cur { color: var(--primary); font-weight: 600; }
+.models-row .badge { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: var(--primary); color: #fff; }
+.models-row .test-btn { padding: 4px 10px; font-size: 12px; border-radius: 6px; flex-shrink: 0; }
+.models-row .result { font-size: 12px; flex-shrink: 0; min-width: 80px; text-align: right; }
+.models-row .result.ok { color: #18a058; }
+.models-row .result.fail { color: #f04142; }
+.models-row .result.testing { color: var(--text-sub); }
+.models-status { margin-top: 8px; font-size: 12px; color: var(--text-sub); }
+
+/* ===== 统一设置面板（左侧 tab + 右侧内容） ===== */
+.settings-layout { display: flex; gap: 0; min-height: 520px; }
+.settings-tabs { width: 140px; flex-shrink: 0; background: var(--bg); border-right: 1px solid var(--border);
+                 padding: 12px 0; display: flex; flex-direction: column; }
+.settings-tab { background: none; border: none; color: var(--text); padding: 11px 18px; font-size: 13px;
+                cursor: pointer; text-align: left; border-left: 3px solid transparent;
+                transition: background .15s, color .15s; }
+.settings-tab:hover { background: var(--sidebar-hover); }
+.settings-tab.active { background: var(--sidebar); color: var(--primary); border-left-color: var(--primary); font-weight: 600; }
+.settings-content { flex: 1; padding: 6px 24px 4px; overflow-y: auto; max-height: 70vh; }
+.settings-panel { display: none; }
+.settings-panel.active { display: block; }
+.settings-panel .field { margin-bottom: 14px; }
+#settingsModal .modal-box { width: 780px; max-width: 96%; padding: 0; max-height: 88vh; height: 600px; display: flex; flex-direction: column; overflow: hidden; }
+#settingsModal .modal-box h3 { padding: 18px 24px 12px; border-bottom: 1px solid var(--border); margin: 0; flex-shrink: 0; }
+#settingsModal .settings-footer { padding: 14px 24px; border-top: 1px solid var(--border); background: var(--modal-bg); margin: 0; border-radius: 0 0 14px 14px; flex-shrink: 0; }
+#settingsModal .settings-layout { flex: 1; min-height: 0; overflow: hidden; }
+#settingsModal .settings-content { max-height: none; }
+#settingsModal .modal-actions { border-radius: 0 0 14px 14px; flex-shrink: 0; }
+.settings-content h4 { margin: 4px 0 12px; font-size: 14px; font-weight: 600; color: var(--text); }
+.settings-content .hint { font-size: 12px; color: var(--text-sub); margin-top: 4px; line-height: 1.5; }
+.settings-panel .models-list, .settings-panel #relayLogList { max-height: none; }
+
+body.sb-open #sidebarMask { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 55; cursor: pointer; }
 #sidebarMask { display: none; }
 
 @media (max-width: 768px) {
-  #sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 50; width: 85vw; max-width: 300px;
-             box-shadow: 2px 0 12px rgba(0,0,0,.2); }
-  #sidebar.hidden { margin-left: -300px; }
-  body.sb-open #sidebarMask { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.35);
-                              z-index: 55; }
-  #topbar { padding: 0 10px; gap: 8px; position: relative; z-index: 60; }
   #modelTag { display: none; }
   #modelSelect { max-width: 150px; }
-  #title { font-size: 14px; }
   #chat { padding: 14px; }
   #inputbar { padding: 10px 12px; }
-  #inputWrap { max-width: 100%; }
-  .row { max-width: 100%; }
   .bubble { max-width: 88%; }
   .avatar { width: 30px; height: 30px; font-size: 14px; }
   #settingsTopBtn { font-size: 12px; padding: 6px 9px; }
   .conv-item .d { display: block; }
+
+  /* 设置弹窗移动端：底部固定 sheet，max-height 70vh，内容内部滚动；高度稳定不随键盘抖动 */
+  #settingsModal .modal-box {
+    width: 100%; max-width: 100%; border-radius: 14px 14px 0 0;
+    height: 70vh; max-height: 70vh; margin: 0; position: fixed; bottom: 0; left: 0; right: 0;
+    padding: 0;
+  }
+  #settingsModal .modal-box > h3 { padding: 16px 16px 12px; border-bottom: 1px solid var(--border);
+                                     margin: 0; font-size: 16px; flex-shrink: 0; }
+  #settingsModal .settings-layout { flex-direction: column; min-height: 0; overflow: hidden; }
+  #settingsModal .settings-tabs { width: 100%; flex-direction: row; border-right: none; border-bottom: 1px solid var(--border); padding: 0; overflow-x: auto; flex-shrink: 0; }
+  #settingsModal .settings-tab { border-left: none; border-bottom: 2px solid transparent; padding: 10px 14px; white-space: nowrap; text-align: center; flex-shrink: 0; }
+  #settingsModal .settings-tab.active { border-bottom-color: var(--primary); border-left-color: transparent; }
+  #settingsModal .settings-content { padding: 14px 16px; max-height: none; flex: 1; overflow-y: auto; }
+  #settingsModal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px;
+                                  border-top: 1px solid var(--border); flex-shrink: 0; margin: 0; }
+  /* relay 子 tab 移动端 */
+  #settingsModal .relay-tabs { overflow-x: auto; }
+  #settingsModal .relay-tab { padding: 8px 10px; white-space: nowrap; }
+  #settingsModal .relay-quota-grid { grid-template-columns: 1fr; }
+  #settingsModal .models-toolbar input { min-width: unset; }
 }
 
 /* ========== 桌面版扩展样式 ========== */
 .btn.danger { background: transparent; border-color: transparent; color: #f04142; padding: 2px 6px; font-size: 15px; line-height: 1; }
 .btn.danger:hover { background: #fde8e8; }
-.btn.ghost { background: transparent; border-color: transparent; }
 .btn.sm { padding: 4px 8px; font-size: 12px; }
 .btn.icon { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center;
             justify-content: center; font-size: 16px; flex-shrink: 0; }
@@ -220,17 +324,39 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 .confirm-box .btns { display: flex; gap: 8px; }
 </style>
 </head>
-<body>
+<body class="sb-closed">
 
 <!-- 侧边栏 -->
 <div id="sidebar" class="hidden">
-  <div class="sidebar-head" onclick="if(!event.target.closest('button'))toggleSidebar()" title="点击空白处收起">
-    <button class="btn primary" id="newChatBtn">+ 新建对话</button>
-    <button class="btn ghost" id="sidebarCloseBtn" onclick="toggleSidebar()" title="收起侧边栏">&#10005;</button>
+  <div class="sidebar-head">
+    <div class="sidebar-logo">
+      <img src="/assets/logo.png" alt="logo" class="logo-mark-img">
+      <span class="sidebar-title">智能桌面助手</span>
+    </div>
+    <button id="sidebarCloseBtn2" class="sb-close" onclick="toggleSidebar()" title="收起">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
   </div>
+
+  <button class="new-chat-btn" onclick="newConversation()">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+    新对话
+  </button>
+
   <div id="convList"></div>
-  <div id="sidebarFoot">
-    <button class="btn ghost" id="settingsSideBtn" onclick="openSettings()">&#9881; 设置</button>
+
+  <div class="sidebar-foot">
+    <button class="foot-btn" onclick="openSettings()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+      </svg>
+      设置
+    </button>
   </div>
 </div>
 <div id="sidebarMask" onclick="toggleSidebar()"></div>
@@ -238,17 +364,17 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 <!-- 主区域 -->
 <div id="main">
   <div id="topbar">
-    <button class="btn icon" id="menuBtn" onclick="toggleSidebar()" title="历史会话">&#9776;</button>
+    <button class="btn icon" id="menuBtn" onclick="toggleSidebar()" title="显示/隐藏历史会话">&#9776;</button>
+    <button class="btn primary" id="newChatTopBtn" onclick="newConversation()" title="新建对话" style="display:none">+ 新对话</button>
     <div id="title">新对话</div>
     <span id="modelTag"></span>
     <select id="modelSelect" title="切换模型" onchange="onModelChange()"></select>
-    <button class="btn" id="relayTopBtn" onclick="openRelay()">&#8644; API 中转</button>
     <button class="btn" id="settingsTopBtn" onclick="openSettings()">&#9881; 设置</button>
   </div>
-  <div id="chat"></div>
+  <div id="chat" onclick="closeSidebar()"></div>
   <div id="inputbar">
     <div id="inputWrap">
-      <textarea id="input" rows="1" placeholder="说出你的需求，AI 会先思考并提出计划，经你确认后再执行..."
+      <textarea id="input" rows="1"
                 onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea>
       <button class="btn primary" id="sendBtn" onclick="send()">发送</button>
       <button class="btn stop" id="stopBtn" onclick="stopGeneration()" style="display:none">停止</button>
@@ -259,94 +385,122 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 <!-- 设置弹窗 -->
 <div class="modal" id="settingsModal">
   <div class="modal-box">
-    <h3>AI 设置</h3>
-    <div class="field">
-      <label>AI 提供方</label>
-      <select id="provider">
-        <option value="auto">自动（有云端配置优先云端，否则本地 Ollama）</option>
-        <option value="cloud">云端 API（OpenAI 兼容）</option>
-        <option value="ollama">本地 Ollama</option>
-      </select>
+    <h3>设置</h3>
+    <div class="settings-layout">
+      <div class="settings-tabs">
+        <button class="settings-tab active" data-tab="tabBasic" onclick="switchSettingsTab('tabBasic', this)">基本</button>
+        <button class="settings-tab" data-tab="tabModels" onclick="switchSettingsTab('tabModels', this)">模型测试</button>
+        <button class="settings-tab" data-tab="tabRelay" onclick="switchSettingsTab('tabRelay', this)">API 中转</button>
+      </div>
+      <div class="settings-content">
+        <!-- 基本 -->
+        <div class="settings-panel active" id="tabBasic">
+          <h4>连接配置</h4>
+          <div class="field">
+            <label>AI 提供方</label>
+            <select id="provider">
+              <option value="auto">自动（有云端配置优先云端，否则本地 Ollama）</option>
+              <option value="cloud">云端 API（OpenAI 兼容）</option>
+              <option value="ollama">本地 Ollama</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>云端 API Base URL</label>
+            <input id="baseUrl" placeholder="如 https://api.deepseek.com/v1">
+            <div class="hint">OpenAI 兼容接口，支持任意服务商任意端口：DeepSeek / 通义 / Moonshot / OpenAI 等</div>
+          </div>
+          <div class="field">
+            <label>API Key</label>
+            <div class="input-append">
+              <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off">
+              <button class="eye-btn" type="button" onclick="toggleKeyVisibility('apiKey', this)" title="显示密钥">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="field">
+            <label>云端模型名</label>
+            <input id="cloudModel" placeholder="如 deepseek-chat / qwen-max">
+          </div>
+          <h4>行为设置</h4>
+          <div class="field">
+            <label>AI 执行前确认</label>
+            <select id="confirmTools">
+              <option value="true">开启（推荐，AI 先出计划等你确认）</option>
+              <option value="false">关闭（AI 自动执行）</option>
+            </select>
+          </div>
+          <div class="modal-actions">
+            <button class="btn primary" onclick="saveSettings()">保存配置</button>
+          </div>
+        </div>
+
+        <!-- 模型测试 -->
+        <div class="settings-panel" id="tabModels">
+          <h4>云端模型连通测试</h4>
+          <div class="models-toolbar">
+            <input id="modelsSearch" placeholder="搜索模型名称" oninput="renderModels()">
+            <button class="btn primary" onclick="fetchModels(true)">拉取模型</button>
+          </div>
+          <div class="models-list" id="modelsList"></div>
+          <div class="models-status" id="modelsStatus"></div>
+        </div>
+
+        <!-- API 中转 -->
+        <div class="settings-panel" id="tabRelay">
+          <div class="relay-tabs">
+            <button class="relay-tab active" data-tab="relayTabUpstream" onclick="switchRelayTab('relayTabUpstream', this)">上游配置</button>
+            <button class="relay-tab" data-tab="relayTabKeys" onclick="switchRelayTab('relayTabKeys', this)">子 API</button>
+            <button class="relay-tab" data-tab="relayTabLogs" onclick="switchRelayTab('relayTabLogs', this)">调用日志</button>
+          </div>
+          <div class="relay-panel" id="relayTabUpstream">
+            <h4>上游连接</h4>
+            <div class="field">
+              <label>上游 Base URL</label>
+              <input id="relayBaseUrl" placeholder="如 https://api.deepseek.com/v1">
+              <div class="hint">统一主 API 的 OpenAI 兼容地址，所有子 API 请求都会转发到这里</div>
+            </div>
+            <div class="field">
+              <label>主 API Key</label>
+              <input id="relayApiKey" type="password" placeholder="sk-..." autocomplete="off">
+            </div>
+            <div class="field">
+              <label>默认模型名</label>
+              <input id="relayModel" placeholder="如 deepseek-chat">
+            </div>
+            <div class="field">
+              <label>超时时间（秒）</label>
+              <input id="relayTimeout" type="number" value="60" min="1">
+            </div>
+            <div class="relay-status" id="relayUpStatus"></div>
+            <div class="modal-actions">
+              <button class="btn primary" onclick="saveRelayUpstream()">保存上游配置</button>
+            </div>
+          </div>
+          <div class="relay-panel" id="relayTabKeys" style="display:none">
+            <h4>子 API 管理</h4>
+            <div class="relay-toolbar">
+              <button class="btn primary" onclick="openRelayKeyModal()">+ 新建子 API</button>
+              <span class="relay-hint-text">外部调用：POST /v1/chat/completions，Header: Authorization: Bearer &lt;子Key&gt;</span>
+            </div>
+            <div id="relayKeyList"></div>
+          </div>
+          <div class="relay-panel" id="relayTabLogs" style="display:none">
+            <h4>最近调用记录</h4>
+            <div class="relay-toolbar">
+              <input id="relayLogFilter" placeholder="按子 API 名称筛选" oninput="loadRelayLogs()">
+              <button class="btn" onclick="loadRelayLogs()">刷新</button>
+            </div>
+            <div id="relayLogList"></div>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="field">
-      <label>云端 API Base URL</label>
-      <input id="baseUrl" placeholder="如 https://api.deepseek.com/v1">
-      <div class="hint">OpenAI 兼容接口，支持任意服务商任意端口：DeepSeek / 通义 / Moonshot / OpenAI 等</div>
-    </div>
-    <div class="field">
-      <label>API Key</label>
-      <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off">
-    </div>
-    <div class="field">
-      <label>云端模型名</label>
-      <input id="cloudModel" placeholder="如 deepseek-chat / qwen-max">
-    </div>
-    <div class="field">
-      <label>AI 执行前确认</label>
-      <select id="confirmTools">
-        <option value="true">开启（推荐，AI 先出计划等你确认）</option>
-        <option value="false">关闭（AI 自动执行）</option>
-      </select>
-    </div>
-    <div class="modal-actions">
+    <div class="modal-actions settings-footer">
       <button class="btn" onclick="closeSettings()">关闭</button>
-      <button class="btn primary" onclick="saveSettings()">保存配置</button>
-    </div>
-  </div>
-</div>
-
-<!-- API 中转弹窗 -->
-<div class="modal" id="relayModal">
-  <div class="modal-box relay-box">
-    <h3>API 中转站</h3>
-    <div class="relay-tabs">
-      <button class="relay-tab active" data-tab="relayTabUpstream" onclick="switchRelayTab('relayTabUpstream', this)">上游配置</button>
-      <button class="relay-tab" data-tab="relayTabKeys" onclick="switchRelayTab('relayTabKeys', this)">子 API</button>
-      <button class="relay-tab" data-tab="relayTabLogs" onclick="switchRelayTab('relayTabLogs', this)">调用日志</button>
-    </div>
-
-    <div class="relay-panel" id="relayTabUpstream">
-      <div class="field">
-        <label>上游 Base URL</label>
-        <input id="relayBaseUrl" placeholder="如 https://api.deepseek.com/v1">
-        <div class="hint">统一主 API 的 OpenAI 兼容地址，所有子 API 请求都会转发到这里</div>
-      </div>
-      <div class="field">
-        <label>主 API Key</label>
-        <input id="relayApiKey" type="password" placeholder="sk-..." autocomplete="off">
-      </div>
-      <div class="field">
-        <label>默认模型名</label>
-        <input id="relayModel" placeholder="如 deepseek-chat">
-      </div>
-      <div class="field">
-        <label>超时时间（秒）</label>
-        <input id="relayTimeout" type="number" value="60" min="1">
-      </div>
-      <div class="relay-status" id="relayUpStatus"></div>
-      <div class="modal-actions">
-        <button class="btn primary" onclick="saveRelayUpstream()">保存上游配置</button>
-      </div>
-    </div>
-
-    <div class="relay-panel" id="relayTabKeys" style="display:none">
-      <div class="relay-toolbar">
-        <button class="btn primary" onclick="openRelayKeyModal()">+ 新建子 API</button>
-        <span class="relay-hint-text">外部调用：POST /v1/chat/completions，Header: Authorization: Bearer &lt;子Key&gt;</span>
-      </div>
-      <div id="relayKeyList"></div>
-    </div>
-
-    <div class="relay-panel" id="relayTabLogs" style="display:none">
-      <div class="relay-toolbar">
-        <input id="relayLogFilter" placeholder="按子 API 名称筛选" oninput="loadRelayLogs()">
-        <button class="btn" onclick="loadRelayLogs()">刷新</button>
-      </div>
-      <div id="relayLogList"></div>
-    </div>
-
-    <div class="modal-actions">
-      <button class="btn" onclick="closeRelay()">关闭</button>
     </div>
   </div>
 </div>
@@ -370,12 +524,12 @@ body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
       <div class="field"><label>每日调用上限</label><input id="relayKeyDailyLimit" type="number" min="0" value="0" placeholder="0=不限"></div>
     </div>
     <div class="relay-key-result" id="relayKeyResult" style="display:none"></div>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeRelayKeyModal()">关闭</button>
-      <button class="btn primary" id="relayKeySaveBtn" onclick="saveRelayKey()">创建</button>
-    </div>
-  </div>
-</div>
+<div class="modal-actions">
+       <button class="btn" onclick="closeRelayKeyModal()">关闭</button>
+       <button class="btn primary" id="relayKeySaveBtn" onclick="saveRelayKey()">创建</button>
+     </div>
+   </div>
+ </div>
 
 <script>
 let state = { convId: null, es: null, thinkingEl: null, busy: false, model: '' };
@@ -554,12 +708,16 @@ function copyCode(btn) {
 function toggleSidebar() {
   const sb = document.getElementById('sidebar');
   const hidden = sb.classList.toggle('hidden');
-  document.body.classList.toggle('sb-open', !hidden);
+  document.body.classList.toggle('sb-closed', hidden);
 }
-function closeSidebarIfMobile() {
-  document.body.classList.remove('sb-open');
-  if (window.innerWidth <= 768) document.getElementById('sidebar').classList.add('hidden');
+function closeSidebar() {
+  const sb = document.getElementById('sidebar');
+  if (!sb.classList.contains('hidden')) {
+    sb.classList.add('hidden');
+    document.body.classList.add('sb-closed');
+  }
 }
+
 
 function convTitle(messages) {
   const first = messages.find(m => m.role === 'user');
@@ -584,9 +742,9 @@ function renderConvList() {
     const el = document.createElement('div');
     el.className = 'conv-item' + (c.id === state.convId ? ' active' : '');
     const del = document.createElement('button');
-    del.className = 'btn danger d';
+    del.className = 'd';
     del.title = '删除会话';
-    del.textContent = 'x';
+    del.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
     del.onclick = (ev) => delConversation(ev, c.id);
     const span = document.createElement('span');
     span.className = 't';
@@ -828,28 +986,137 @@ function onModelChange() {
   if (sel.value) state.model = sel.value;
 }
 
+/* ================= 模型面板 ================= */
+let _allModels = [];
+let _curModel = '';
+
+async function fetchModels(forceRefresh) {
+  const status = document.getElementById('modelsStatus');
+  const list = document.getElementById('modelsList');
+  status.textContent = '正在拉取模型...';
+  try {
+    const sel = document.getElementById('modelSelect');
+    _curModel = sel.value;
+    if (forceRefresh) {
+      const r = await fetch('/api/models/fetch', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
+      const d = await r.json();
+      if (d.ok) {
+        _allModels = d.models || [];
+        status.textContent = `已拉取 ${_allModels.length} 个模型（${d.provider}）`;
+      } else {
+        status.textContent = '拉取失败：' + (d.error || '');
+      }
+    } else {
+      const r = await fetch('/api/models');
+      const d = await r.json();
+      _allModels = d.models || [];
+      _curModel = d.current || _curModel || '';
+      status.textContent = `共 ${_allModels.length} 个模型（${d.provider}）`;
+    }
+  } catch (e) {
+    status.textContent = '拉取失败：' + e.message;
+    _allModels = [];
+  }
+  renderModels();
+}
+
+function renderModels() {
+  const list = document.getElementById('modelsList');
+  const q = document.getElementById('modelsSearch').value.toLowerCase();
+  const cur = _curModel || document.getElementById('modelSelect').value;
+  const items = _allModels.filter(m => m.name.toLowerCase().includes(q));
+  if (!items.length) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-sub);font-size:13px">暂无模型，请先点击「拉取模型」</div>';
+    return;
+  }
+  list.innerHTML = items.map(m => {
+    const isCur = m.name === cur;
+    return `<div class="models-row">
+      <span class="nm ${isCur ? 'cur' : ''}">${m.name}</span>
+      ${isCur ? '<span class="badge">当前</span>' : ''}
+      <button class="btn primary test-btn" onclick="testModel('${m.name}', this)">测试</button>
+      <span class="result" id="r_${m.name.replace(/[^a-zA-Z0-9_]/g,'_')}"></span>
+    </div>`;
+  }).join('');
+}
+
+async function testModel(name, btn) {
+  const id = 'r_' + name.replace(/[^a-zA-Z0-9_]/g, '_');
+  const resultEl = document.getElementById(id);
+  if (!resultEl) return;
+  btn.disabled = true;
+  btn.textContent = '测试中';
+  resultEl.textContent = '';
+  resultEl.className = 'result testing';
+  try {
+    const r = await fetch('/api/models/test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model: name})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      resultEl.textContent = d.latency + ' ms';
+      resultEl.className = 'result ok';
+    } else {
+      resultEl.textContent = d.error || '失败';
+      resultEl.className = 'result fail';
+    }
+  } catch (e) {
+    resultEl.textContent = e.message;
+    resultEl.className = 'result fail';
+  }
+  btn.disabled = false;
+  btn.textContent = '测试';
+}
+
 /* ================= 设置 ================= */
-async function openSettings() {
+function switchSettingsTab(tabId, btn) {
+  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(tabId).classList.add('active');
+  if (tabId === 'tabModels') fetchModels(false);
+  if (tabId === 'tabRelay') { loadRelayUpstream(); loadRelayKeys(); switchRelayTab('relayTabUpstream', document.querySelector('[data-tab=relayTabUpstream]')); }
+}
+function openSettings() {
+  document.getElementById('settingsModal').classList.add('open');
+  loadSettingsForm();
+}
+function toggleKeyVisibility(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    btn.title = '隐藏密钥';
+  } else {
+    inp.type = 'password';
+    btn.title = '显示密钥';
+  }
+}
+async function loadSettingsForm() {
   try {
     const r = await fetch('/api/status');
     const d = await r.json();
     document.getElementById('provider').value = d.provider === 'cloud' ? 'cloud' : (d.provider === 'ollama' ? 'ollama' : 'auto');
     document.getElementById('baseUrl').value = d.cloud_base_url || '';
-    document.getElementById('apiKey').value = '';
+    const apiKeyInput = document.getElementById('apiKey');
+    apiKeyInput.dataset.hasKey = d.has_api_key ? '1' : '';
+    apiKeyInput.placeholder = d.has_api_key ? '已保存（留空保留原值，输入新值覆盖）' : 'sk-...';
+    apiKeyInput.value = '';
     document.getElementById('cloudModel').value = d.cloud_model || '';
     document.getElementById('confirmTools').value = d.confirm_tools ? 'true' : 'false';
   } catch (e) {}
-  document.getElementById('settingsModal').classList.add('open');
 }
 function closeSettings() { document.getElementById('settingsModal').classList.remove('open'); }
 async function saveSettings() {
+  const apiKeyVal = document.getElementById('apiKey').value.trim();
   const body = {
     provider: document.getElementById('provider').value,
     base_url: document.getElementById('baseUrl').value.trim(),
-    api_key: document.getElementById('apiKey').value.trim(),
     model: document.getElementById('cloudModel').value.trim(),
     confirm_tools: document.getElementById('confirmTools').value === 'true'
   };
+  if (apiKeyVal) body.api_key = apiKeyVal;
   try {
     const r = await fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
     const d = await r.json();
@@ -867,14 +1134,6 @@ refreshModels();
 /* ================= API 中转站 ================= */
 let relayEditingId = null;
 
-function openRelay() {
-  document.getElementById('relayModal').classList.add('open');
-  switchRelayTab('relayTabUpstream', document.querySelector('.relay-tab.active') || null);
-  loadRelayUpstream();
-  loadRelayKeys();
-  loadRelayLogs();
-}
-function closeRelay() { document.getElementById('relayModal').classList.remove('open'); }
 function switchRelayTab(tabId, btn) {
   document.querySelectorAll('.relay-tab').forEach(t => t.classList.remove('active'));
   if (btn) btn.classList.add('active');
@@ -1240,6 +1499,13 @@ def create_app(relay_manager: RelayManager = None) -> Flask:
             return jsonify({"ok": False, "error": "访问口令错误"}), 401
         return None
 
+    @app.route("/assets/<path:filename>")
+    def serve_assets(filename):
+        import os
+
+        base = os.path.join(os.path.dirname(__file__), "..", "data", "assets")
+        return send_from_directory(base, filename)
+
     @app.route("/")
     def index():
         return render_template_string(PAGE_TEMPLATE)
@@ -1421,6 +1687,7 @@ def create_app(relay_manager: RelayManager = None) -> Flask:
             "model": engine.model or "",
             "cloud_base_url": engine.provider.base_url if engine.provider.name == "cloud" else "",
             "cloud_model": engine.provider.model if engine.provider.name == "cloud" else "",
+            "has_api_key": bool(getattr(engine.provider, "api_key", "")),
             "confirm_tools": engine.confirm_tools,
         }
         try:
@@ -1440,6 +1707,49 @@ def create_app(relay_manager: RelayManager = None) -> Flask:
         except Exception:
             pass
         return jsonify({"ok": True, "models": models, "current": engine.model, "provider": engine.provider.name})
+
+    @app.route("/api/models/fetch", methods=["POST"])
+    def api_models_fetch():
+        """拉取云端 /v1/models 列表或 Ollama /api/tags"""
+        from .ai_engine import AIEngine
+        engine = AIEngine()
+        try:
+            provider = engine.provider
+            if provider.name == "cloud":
+                items = provider.list_remote_models()
+            else:
+                items = [{"name": m.get("name") or m.get("model")} for m in provider.list_models()]
+            return jsonify({"ok": True, "models": items, "provider": provider.name})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+        finally:
+            try:
+                engine.provider.close()
+            except Exception:
+                pass
+
+    @app.route("/api/models/test", methods=["POST"])
+    def api_models_test():
+        """测试单个模型连通性 + 延迟（毫秒）"""
+        from .ai_engine import AIEngine
+        data = request.get_json(silent=True) or {}
+        model = data.get("model", "").strip()
+        if not model:
+            return jsonify({"ok": False, "error": "model 必填"}), 400
+        engine = AIEngine()
+        try:
+            if engine.provider.name == "cloud":
+                result = engine.provider.test_model(model)
+            else:
+                result = engine.provider.test_model(model)
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e), "model": model}), 500
+        finally:
+            try:
+                engine.provider.close()
+            except Exception:
+                pass
 
     @app.route("/api/conversations", methods=["GET", "POST"])
     def api_conversations():
@@ -1478,10 +1788,12 @@ def create_app(relay_manager: RelayManager = None) -> Flask:
         if "confirm_tools" in data:
             ai["confirm_tools"] = bool(data["confirm_tools"])
         cloud = ai.setdefault("cloud", {})
-        # 字段只要出现在请求中就覆盖（含空串清空）
-        for field in ("base_url", "api_key", "model"):
+        # api_key 为空时不覆盖原值
+        for field in ("base_url", "model"):
             if field in data:
                 cloud[field] = (data.get(field) or "").strip()
+        if "api_key" in data and data["api_key"]:
+            cloud["api_key"] = data["api_key"].strip()
         save_json(CONFIG_PATH / "config.json", cfg)
 
         # 云端配置完整性校验（不做网络请求，避免阻塞）

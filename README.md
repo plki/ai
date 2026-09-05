@@ -1,4 +1,10 @@
+<div align="center">
+
+<img src="assets/logo.png" alt="智能桌面助手" width="96" height="96" />
+
 # 智能桌面助手 (AI Desktop Assistant)
+
+</div>
 
 一个 AI 驱动的桌面助手，支持本地 Ollama 与自己的云端 API，提供命令行与网页双界面。AI 会先思考并提出执行计划，经你确认后再操作。
 

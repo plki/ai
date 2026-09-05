@@ -127,6 +127,15 @@ data/
 **/tmp/
 **/temp/
 
+# Test screenshots / debug artifacts
+/desktop_*.png
+/mobile_*.png
+/sidebar_*.png
+/settings_*.png
+/sb_check.png
+/check_*.png
+/website.html.bak
+
 # Dart
 **/.dart_tool/
 **/*.dart_tool
