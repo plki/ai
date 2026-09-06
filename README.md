@@ -171,3 +171,9 @@ python -m ruff check src/ tests/
 - **"未配置 AI 模型"**：在「设置」中配置云端 API，或安装并启动 [Ollama](https://ollama.com/download) 后 `ollama pull qwen2.5:0.5b`。
 - **云端 API 报认证失败**：检查 API Key 是否正确、余额是否充足。
 - **跨平台**：本项目适配 Windows / macOS / Linux，Windows 专属功能会按平台自动降级。
+
+## 许可证与免责声明
+
+- 本项目基于 [MIT License](LICENSE) 开源，**仅供学习与技术研究使用，不得用于任何商业用途**。
+- AI 生成内容仅供参考，使用者需自行承担使用风险与合规责任。
+- 完整免责声明见 [DISCLAIMER.md](DISCLAIMER.md)。
