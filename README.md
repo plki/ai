@@ -4,7 +4,7 @@
 
 # 智能桌面助手 (AI Desktop Assistant)
 
-🌐 [官方网站](https://ai-desktop-assistant-website.pages.dev/)
+🌐 [官方网站](https://desktopassistant.ccwu.cc)
 
 </div>
 
